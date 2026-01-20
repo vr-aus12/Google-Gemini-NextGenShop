@@ -7,15 +7,17 @@ const API_BASE = 'http://localhost:8000';
 // Unified Store Management
 const getStore = <T>(key: string, def: T): T => {
   const saved = localStorage.getItem(`nexshop_${key}`);
-  return saved ? JSON.parse(saved) : def;
+  const data = saved ? JSON.parse(saved) : def;
+  return data;
 };
 
 const setStore = (key: string, val: any) => {
   localStorage.setItem(`nexshop_${key}`, JSON.stringify(val));
 };
 
-// Initialize Stores
+// Initialize Stores if they don't exist
 if (!localStorage.getItem('nexshop_products')) setStore('products', DUMMY_PRODUCTS);
+if (!localStorage.getItem('nexshop_users')) setStore('users', []);
 
 export class ApiError extends Error {
   status?: number;
@@ -29,11 +31,11 @@ export class ApiError extends Error {
 async function safeFetch<T>(url: string, options?: RequestInit, fallback?: T): Promise<T> {
   try {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 1500); // Shorter timeout for better UX
+    const id = setTimeout(() => controller.abort(), 2000); 
     const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      const errorData = await res.json().catch(() => ({ detail: 'Unknown server error' }));
       throw new ApiError(errorData.detail || 'API Error', res.status);
     }
     return await res.json();
@@ -53,20 +55,25 @@ export const api = {
       });
       return res;
     } catch (e) {
-      // Local Fallback
+      console.warn("Backend offline. Falling back to LocalStorage registration.");
       const users = getStore<User[]>('users', []);
-      if (users.find(u => u.email === data.email)) throw new Error("This email is already registered.");
+      if (users.find(u => u.email === data.email)) {
+        throw new Error("Registration failed: This email is already registered.");
+      }
+      
       const token = Math.random().toString(36).substr(2, 6).toUpperCase();
       const newUser: User = { 
         ...data, 
-        id: Math.random().toString(36).substr(2, 9), 
+        id: 'local-' + Math.random().toString(36).substr(2, 9), 
         isLoggedIn: false, 
         isVerified: false, 
         verificationToken: token,
         role: 'buyer'
       };
+      
       users.push(newUser);
       setStore('users', users);
+      console.log("Local user created successfully:", newUser.email);
       return { status: 'success', token };
     }
   },
@@ -80,10 +87,20 @@ export const api = {
       });
       return { ...data, isLoggedIn: true };
     } catch (e) {
-      // Local Fallback
+      console.warn("Backend offline. Falling back to LocalStorage login.");
       const users = getStore<User[]>('users', []);
-      const user = users.find(u => u.email === credentials.email && (u.password === credentials.password || u.password_hash === credentials.password));
-      if (!user) throw new Error("Invalid email or password. Please check your credentials.");
+      const user = users.find(u => u.email === credentials.email);
+      
+      if (!user) {
+        throw new Error("Account not found. Please register first.");
+      }
+      
+      const passMatch = user.password === credentials.password || user.password_hash === credentials.password;
+      if (!passMatch) {
+        throw new Error("Invalid credentials. Please check your password.");
+      }
+      
+      console.log("Local login successful for:", user.email);
       return { ...user, isLoggedIn: true };
     }
   },
@@ -94,7 +111,8 @@ export const api = {
     } catch (e) {
       const users = getStore<User[]>('users', []);
       const idx = users.findIndex((u: any) => u.verificationToken === token);
-      if (idx === -1) throw new Error("Invalid verification token. Please check the code provided.");
+      if (idx === -1) throw new Error("Invalid verification token. Please double check the code.");
+      
       users[idx].isVerified = true;
       delete (users[idx] as any).verificationToken;
       setStore('users', users);
