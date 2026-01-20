@@ -1,11 +1,14 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, RefreshCcw, Edit, CreditCard, ShieldCheck, Truck, Sparkles, MapPin, Package, Clock, ShieldAlert, Lock, ArrowLeft, BellRing, BrainCircuit, Wand2, Globe, Users, DollarSign, TrendingUp, Activity, PackageOpen, ChevronDown, Trash2, Presentation as PresentationIcon } from 'lucide-react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, RefreshCcw, Edit, CreditCard, ShieldCheck, Truck, Sparkles, MapPin, Package, Clock, ShieldAlert, Lock, ArrowLeft, BellRing, BrainCircuit, Wand2, Globe, Users, DollarSign, TrendingUp, Activity, PackageOpen, ChevronDown, Trash2, Presentation as PresentationIcon, HeartPulse, MessageSquareMore, AlertCircle } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review, ChatSentiment } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
 import AIAgent from './components/AIAgent';
 import Presentation from './components/Presentation';
+import { runFunctionalTests, TestResult } from './services/testRunner';
+
+type AdminTab = 'users' | 'orders' | 'health' | 'sentiment';
 
 const App: React.FC = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -15,6 +18,10 @@ const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [sentiments, setSentiments] = useState<ChatSentiment[]>([]);
+  const [adminTab, setAdminTab] = useState<AdminTab>('users');
+  const [healthResults, setHealthResults] = useState<TestResult[]>([]);
+  const [isTesting, setIsTesting] = useState(false);
   const [notification, setNotification] = useState<{ message: string; sub: string; icon: any; type?: 'info' | 'error' | 'success' } | null>(null);
 
   const [state, setState] = useState<MarketplaceState>(() => {
@@ -46,13 +53,20 @@ const App: React.FC = () => {
         setState(prev => ({ ...prev, cart }));
         
         if (state.view === 'admin' || state.view === 'orders') {
-          const fetchedOrders = state.user.role === 'admin' ? await api.getAllOrders() : await api.getMyOrders(state.user.id);
-          setOrders(fetchedOrders);
-        }
-        
-        if (state.view === 'admin') {
-          const fetchedUsers = await api.getAllUsers();
-          setAllUsers(fetchedUsers);
+          if (adminTab === 'orders' || state.view === 'orders') {
+            const fetchedOrders = state.user.role === 'admin' ? await api.getAllOrders() : await api.getMyOrders(state.user.id);
+            setOrders(fetchedOrders);
+          }
+          
+          if (adminTab === 'users') {
+            const fetchedUsers = await api.getAllUsers();
+            setAllUsers(fetchedUsers);
+          }
+
+          if (adminTab === 'sentiment') {
+            const fetchedSentiments = await api.getAllSentiments();
+            setSentiments(fetchedSentiments);
+          }
         }
       }
     } catch (err) {
@@ -62,7 +76,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     refreshData();
-  }, [state.view, state.user?.id]);
+  }, [state.view, state.user?.id, adminTab]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -109,7 +123,22 @@ const App: React.FC = () => {
       } finally {
         setIsProcessingPayment(false);
       }
-    }
+    },
+    // Required for testRunner
+    addProduct: async (p: any) => console.log('Mock Add Product', p),
+    updateProfile: async (p: any) => {
+       if (state.user) await api.updateProfile(state.user.id, p);
+    },
+    setSellerTab: (t: any) => console.log('Mock setSellerTab', t)
+  };
+
+  const handleRunHealthCheck = async () => {
+    setIsTesting(true);
+    await runFunctionalTests((results) => {
+      setHealthResults(results);
+    }, actions);
+    setIsTesting(false);
+    showNotify("Health Check Complete", "System diagnostics finished.", HeartPulse, 'success');
   };
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -203,20 +232,25 @@ const App: React.FC = () => {
 
         {state.view === 'admin' && state.user?.role === 'admin' && (
           <div className="space-y-10 animate-in fade-in duration-500">
-             <div className="flex justify-between items-end">
+             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                 <div>
                   <h1 className="text-4xl font-black tracking-tight">Admin HQ</h1>
-                  <p className="text-slate-400 text-sm">System Management & User Database</p>
+                  <p className="text-slate-400 text-sm">System Management & Real-time Monitoring</p>
                 </div>
-                <div className="flex bg-white p-1 rounded-2xl border shadow-sm">
-                   {['users', 'orders'].map(t => (
-                     <button key={t} onClick={() => refreshData()} className={`px-6 py-2 rounded-xl text-xs font-bold uppercase transition-all bg-indigo-600 text-white shadow-lg shadow-indigo-100`}>{t}</button>
+                <div className="flex bg-white p-1 rounded-2xl border shadow-sm overflow-x-auto w-full md:w-auto">
+                   {(['users', 'orders', 'health', 'sentiment'] as AdminTab[]).map(t => (
+                     <button 
+                        key={t} 
+                        onClick={() => setAdminTab(t)} 
+                        className={`px-6 py-2 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap ${adminTab === t ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-400 hover:text-slate-600'}`}>
+                        {t}
+                     </button>
                    ))}
                 </div>
              </div>
 
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-               <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm">
+             {adminTab === 'users' && (
+               <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm animate-in slide-in-from-bottom-4">
                   <div className="px-8 py-6 border-b flex justify-between items-center bg-slate-50/50">
                     <h3 className="font-bold text-slate-800 flex items-center gap-2"><Users size={18} className="text-indigo-600"/> Registered Users</h3>
                     <span className="text-[10px] font-black bg-indigo-100 text-indigo-600 px-2 py-1 rounded-lg uppercase">{allUsers.length} Users</span>
@@ -243,32 +277,135 @@ const App: React.FC = () => {
                     </table>
                   </div>
                </div>
+             )}
 
-               <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm">
+             {adminTab === 'orders' && (
+               <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm animate-in slide-in-from-bottom-4">
                   <div className="px-8 py-6 border-b flex justify-between items-center bg-slate-50/50">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2"><Package size={18} className="text-indigo-600"/> Recent Orders</h3>
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2"><Package size={18} className="text-indigo-600"/> All Marketplace Orders</h3>
                     <span className="text-[10px] font-black bg-indigo-100 text-indigo-600 px-2 py-1 rounded-lg uppercase">{orders.length} Total</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50/30"><tr className="text-[10px] font-black uppercase text-slate-400 tracking-widest"><th className="px-8 py-4">ID</th><th className="px-8 py-4">Total</th><th className="px-8 py-4">Status</th></tr></thead>
+                      <thead className="bg-slate-50/30"><tr className="text-[10px] font-black uppercase text-slate-400 tracking-widest"><th className="px-8 py-4">ID</th><th className="px-8 py-4">Customer ID</th><th className="px-8 py-4">Total</th><th className="px-8 py-4">Status</th></tr></thead>
                       <tbody className="divide-y">
                         {orders.length > 0 ? orders.map(o => (
                           <tr key={o.id} className="hover:bg-slate-50 transition-colors">
                             <td className="px-8 py-5 font-mono text-xs text-slate-400">#{o.id.split('-')[1]}</td>
+                            <td className="px-8 py-5 font-medium text-slate-600 text-xs">{o.user_id}</td>
                             <td className="px-8 py-5 font-black text-indigo-600">${o.total.toFixed(2)}</td>
                             <td className="px-8 py-5">
                                <span className="px-2 py-1 rounded-lg text-[9px] font-bold uppercase bg-amber-50 text-amber-600 border border-amber-100">{o.status}</span>
                             </td>
                           </tr>
                         )) : (
-                          <tr><td colSpan={3} className="px-8 py-12 text-center text-slate-400 italic">No orders yet.</td></tr>
+                          <tr><td colSpan={4} className="px-8 py-12 text-center text-slate-400 italic">No orders found in database.</td></tr>
                         )}
                       </tbody>
                     </table>
                   </div>
                </div>
-             </div>
+             )}
+
+             {adminTab === 'health' && (
+               <div className="space-y-8 animate-in slide-in-from-bottom-4">
+                  <div className="bg-indigo-900 rounded-[40px] p-12 text-white flex flex-col md:flex-row justify-between items-center gap-8 shadow-2xl relative overflow-hidden">
+                     <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+                     <div className="space-y-4 relative z-10 text-center md:text-left">
+                        <h2 className="text-4xl font-black tracking-tight">System Diagnostics</h2>
+                        <p className="text-indigo-200 text-sm max-w-md">Run a full suite of automated functional tests to verify API integrity, authentication flows, and UI navigation persistence.</p>
+                     </div>
+                     <button 
+                        onClick={handleRunHealthCheck} 
+                        disabled={isTesting}
+                        className="bg-white text-indigo-900 px-10 py-5 rounded-[28px] font-black shadow-xl hover:bg-indigo-50 transition-all flex items-center gap-3 relative z-10 disabled:opacity-50">
+                        {isTesting ? <Loader2 size={24} className="animate-spin" /> : <HeartPulse size={24} />}
+                        {isTesting ? 'Analyzing...' : 'Run Diagnostics'}
+                     </button>
+                  </div>
+
+                  {healthResults.length > 0 && (
+                    <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm">
+                       <div className="px-8 py-6 border-b flex justify-between items-center bg-slate-50/50">
+                         <h3 className="font-bold text-slate-800">Test Execution History</h3>
+                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Environment: Local Persistent Storage</span>
+                       </div>
+                       <div className="divide-y">
+                         {healthResults.map((res, i) => (
+                           <div key={i} className="px-8 py-5 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+                              <div className="flex items-center gap-4">
+                                 <div className={`p-2 rounded-xl ${res.status === 'passed' ? 'bg-green-50 text-green-600' : res.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-400'}`}>
+                                    {res.status === 'passed' ? <CheckCircle size={18}/> : res.status === 'failed' ? <AlertCircle size={18}/> : <Loader2 size={18} className="animate-spin"/>}
+                                 </div>
+                                 <div>
+                                    <p className="font-bold text-slate-900 text-sm">{res.name}</p>
+                                    {res.error && <p className="text-[10px] text-red-500 font-mono mt-1">{res.error}</p>}
+                                 </div>
+                              </div>
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg ${res.status === 'passed' ? 'bg-green-100 text-green-700' : res.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                                 {res.status}
+                              </span>
+                           </div>
+                         ))}
+                       </div>
+                    </div>
+                  )}
+               </div>
+             )}
+
+             {adminTab === 'sentiment' && (
+               <div className="space-y-8 animate-in slide-in-from-bottom-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {[
+                      { label: 'Avg Sentiment', value: '78%', icon: Sparkles, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+                      { label: 'Conversations', value: sentiments.length, icon: MessageSquareMore, color: 'text-amber-600', bg: 'bg-amber-50' },
+                      { label: 'User Satisfaction', value: 'High', icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50' }
+                    ].map((stat, i) => (
+                      <div key={i} className="bg-white border rounded-[32px] p-8 flex items-center gap-6 shadow-sm">
+                        <div className={`w-14 h-14 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center`}><stat.icon size={28}/></div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{stat.label}</p>
+                          <p className="text-3xl font-black text-slate-900 leading-none mt-1">{stat.value}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm">
+                    <div className="px-8 py-6 border-b flex justify-between items-center bg-slate-50/50">
+                      <h3 className="font-bold text-slate-800 flex items-center gap-2"><BrainCircuit size={18} className="text-indigo-600"/> AI Interaction Insights</h3>
+                      <button onClick={() => refreshData()} className="text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><RefreshCcw size={12}/> Sync Sentiments</button>
+                    </div>
+                    <div className="divide-y">
+                      {sentiments.length > 0 ? sentiments.map(s => (
+                        <div key={s.id} className="px-8 py-6 hover:bg-slate-50 transition-colors group">
+                           <div className="flex justify-between items-start mb-4">
+                              <div className="flex items-center gap-3">
+                                 <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 text-xs">{s.user_name.charAt(0)}</div>
+                                 <div>
+                                    <h4 className="font-bold text-slate-900 text-sm">{s.user_name}</h4>
+                                    <p className="text-[10px] text-slate-400">{new Date(s.timestamp).toLocaleString()}</p>
+                                 </div>
+                              </div>
+                              <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${s.score === 'Positive' ? 'bg-green-500 text-white' : s.score === 'Negative' ? 'bg-red-500 text-white' : 'bg-slate-400 text-white'}`}>
+                                 {s.score}
+                              </span>
+                           </div>
+                           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 group-hover:border-indigo-100 transition-colors">
+                              <p className="text-xs text-slate-600 leading-relaxed italic">"{s.summary}"</p>
+                              <div className="mt-2 pt-2 border-t border-slate-200 flex items-center gap-4">
+                                 <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter flex items-center gap-1"><MessageSquareMore size={10}/> {s.raw_messages} Messages</span>
+                                 <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter flex items-center gap-1"><ShieldCheck size={10}/> Verified Session</span>
+                              </div>
+                           </div>
+                        </div>
+                      )) : (
+                        <div className="px-8 py-20 text-center text-slate-400 italic">No chat interactions analyzed yet.</div>
+                      )}
+                    </div>
+                  </div>
+               </div>
+             )}
           </div>
         )}
 

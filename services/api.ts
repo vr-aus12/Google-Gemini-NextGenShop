@@ -19,6 +19,12 @@ const SEED_USERS: User[] = [
   { id: 'user-jane', name: 'Jane Seller', email: 'jane@techstudio.com', password: 'password', role: 'seller', isLoggedIn: false, isVerified: true }
 ];
 
+const SEED_SENTIMENTS: ChatSentiment[] = [
+  { id: 's1', user_id: 'user-sam', user_name: 'Sam Sample', timestamp: new Date().toISOString(), score: 'Positive', summary: 'User expressed high interest in the Mechanical Gaming Keyboard specs.', raw_messages: 5 },
+  { id: 's2', user_id: 'guest-1', user_name: 'Guest User', timestamp: new Date(Date.now() - 3600000).toISOString(), score: 'Neutral', summary: 'Inquiry about international shipping rates for Audio gear.', raw_messages: 3 },
+  { id: 's3', user_id: 'user-jane', user_name: 'Jane Seller', timestamp: new Date(Date.now() - 7200000).toISOString(), score: 'Negative', summary: 'Frustration reported regarding seller dashboard analytics loading time.', raw_messages: 8 }
+];
+
 // Helper to interact with our "DB"
 const getTable = <T>(key: string): T[] => {
   const data = localStorage.getItem(key);
@@ -33,6 +39,7 @@ const setTable = (key: string, data: any) => {
 const initDB = () => {
   if (getTable(DB_KEYS.PRODUCTS).length === 0) setTable(DB_KEYS.PRODUCTS, DUMMY_PRODUCTS);
   if (getTable(DB_KEYS.USERS).length === 0) setTable(DB_KEYS.USERS, SEED_USERS);
+  if (getTable(DB_KEYS.SENTIMENTS).length === 0) setTable(DB_KEYS.SENTIMENTS, SEED_SENTIMENTS);
   if (!localStorage.getItem(DB_KEYS.CARTS)) setTable(DB_KEYS.CARTS, {});
 };
 
@@ -150,7 +157,7 @@ export const api = {
   },
 
   async getAllSentiments(): Promise<ChatSentiment[]> {
-    return getTable<ChatSentiment>(DB_KEYS.SENTIMENTS);
+    return getTable<ChatSentiment>(DB_KEYS.SENTIMENTS).reverse();
   },
 
   async submitReview(productId: string, review: any): Promise<void> {
