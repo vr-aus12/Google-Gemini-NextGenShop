@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing } from 'lucide-react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing, ClipboardCheck } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
@@ -16,7 +16,7 @@ const App: React.FC = () => {
   const [sellerTab, setSellerTab] = useState<'analytics' | 'orders' | 'inventory'>('analytics');
   
   const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [showTests, setShowTests] = useState(false);
+  const [showTestsPanel, setShowTestsPanel] = useState(false);
   const [notification, setNotification] = useState<{ message: string; sub: string; icon: any } | null>(null);
 
   const [state, setState] = useState<MarketplaceState>(() => {
@@ -53,6 +53,9 @@ const App: React.FC = () => {
     }
     if (state.view === 'product-detail' && state.selectedProductId) {
       api.getReviews(state.selectedProductId).then(setReviews);
+    }
+    if (state.view === 'tests') {
+      handleRunTests();
     }
   }, [state.view, state.user, state.selectedProductId]);
 
@@ -273,27 +276,33 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Diagnostics Panel */}
-      {showTests && (
-        <div className="fixed top-20 right-8 z-[60] w-72 bg-white border shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-right duration-300">
+      {/* Diagnostics Side Panel */}
+      {showTestsPanel && (
+        <div className="fixed top-20 right-8 z-[60] w-80 bg-white border shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-right duration-300">
           <div className="bg-slate-900 p-4 text-white flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={14} className="text-indigo-400"/> System Status</span>
-            <button onClick={() => setShowTests(false)} className="hover:text-red-400"><X size={16}/></button>
+            <button onClick={() => setShowTestsPanel(false)} className="hover:text-red-400 p-1"><X size={16}/></button>
           </div>
-          <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+          <div className="p-4 space-y-3 max-h-[450px] overflow-y-auto scrollbar-hide">
             {testResults.map((tr, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
-                <span className="text-slate-600 font-medium">{tr.name}</span>
-                <span className={`font-black uppercase tracking-tighter ${
-                  tr.status === 'passed' ? 'text-green-500' : 
-                  tr.status === 'failed' ? 'text-red-500' : 'text-blue-400 animate-pulse'
+              <div key={i} className="flex items-center justify-between text-[11px] border-b border-slate-50 pb-2 last:border-0">
+                <div className="flex flex-col">
+                  <span className="text-slate-600 font-bold">{tr.name}</span>
+                  {tr.error && <span className="text-[9px] text-red-400 font-medium truncate max-w-[160px]">{tr.error}</span>}
+                </div>
+                <span className={`font-black uppercase tracking-tighter px-2 py-0.5 rounded ${
+                  tr.status === 'passed' ? 'text-green-600 bg-green-50' : 
+                  tr.status === 'failed' ? 'text-red-600 bg-red-50' : 'text-indigo-600 bg-indigo-50 animate-pulse'
                 }`}>{tr.status}</span>
               </div>
             ))}
           </div>
-          <button onClick={handleRunTests} className="w-full bg-indigo-600 text-white py-3 text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
-            <RefreshCcw size={14} /> Re-run Functional Tests
-          </button>
+          <div className="p-3 bg-slate-50 border-t flex flex-col gap-2">
+            <button onClick={() => { actions.navigateTo('tests'); setShowTestsPanel(false); }} className="text-indigo-600 text-[10px] font-black uppercase text-center hover:underline">View Full Report</button>
+            <button onClick={handleRunTests} className="w-full bg-indigo-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-200">
+              <RefreshCcw size={14} /> Re-run Tests
+            </button>
+          </div>
         </div>
       )}
 
@@ -316,7 +325,10 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button onClick={() => setShowTests(!showTests)} className="p-2.5 text-slate-400 hover:text-indigo-600 transition-colors">
+          <button onClick={() => actions.navigateTo('tests')} className={`p-2.5 transition-colors ${state.view === 'tests' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`} title="Test Center">
+            <ClipboardCheck className="w-5 h-5" />
+          </button>
+          <button onClick={() => setShowTestsPanel(!showTestsPanel)} className="p-2.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Quick Diagnostics">
             <ShieldCheck className="w-5 h-5" />
           </button>
           <button className="relative p-2.5 text-slate-600 hover:bg-slate-100 rounded-full" onClick={() => actions.navigateTo('cart')}>
@@ -541,6 +553,67 @@ const App: React.FC = () => {
                         className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" 
                         placeholder="Update your address..."
                       />
+                   </div>
+                </div>
+             </div>
+           </div>
+        )}
+
+        {state.view === 'tests' && (
+           <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-700">
+             <div className="flex justify-between items-end">
+               <div className="space-y-2">
+                 <h1 className="text-5xl font-black tracking-tight">Test Center</h1>
+                 <p className="text-slate-500">Automated functional verification of NexShop services.</p>
+               </div>
+               <button onClick={handleRunTests} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all">
+                 <RefreshCcw size={18} /> Re-run Complete Suite
+               </button>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {testResults.map((tr, i) => (
+                 <div key={i} className="bg-white border p-6 rounded-[32px] flex items-start gap-4 shadow-sm hover:shadow-md transition-all">
+                   <div className={`p-3 rounded-2xl ${
+                     tr.status === 'passed' ? 'bg-green-50 text-green-600' : 
+                     tr.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600 animate-pulse'
+                   }`}>
+                     {tr.status === 'passed' ? <CheckCircle size={24}/> : tr.status === 'failed' ? <ShieldAlert size={24}/> : <RefreshCcw size={24} className="animate-spin"/>}
+                   </div>
+                   <div className="flex-1 space-y-1">
+                     <div className="flex justify-between items-center">
+                       <h3 className="font-bold text-slate-900">{tr.name}</h3>
+                       <span className={`text-[10px] font-black uppercase tracking-widest ${
+                         tr.status === 'passed' ? 'text-green-500' : tr.status === 'failed' ? 'text-red-500' : 'text-indigo-400'
+                       }`}>{tr.status}</span>
+                     </div>
+                     {tr.error ? (
+                       <p className="text-xs text-red-400 bg-red-50/50 p-2 rounded-lg border border-red-100 font-mono mt-2">{tr.error}</p>
+                     ) : (
+                       <p className="text-xs text-slate-400">Verification successful. System is stable.</p>
+                     )}
+                   </div>
+                 </div>
+               ))}
+             </div>
+
+             <div className="bg-slate-900 text-white p-10 rounded-[48px] space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-indigo-500 rounded-2xl flex items-center justify-center"><ShieldCheck size={28}/></div>
+                  <h2 className="text-2xl font-bold">System Integrity Report</h2>
+                </div>
+                <div className="grid grid-cols-3 gap-8">
+                   <div className="space-y-1">
+                      <div className="text-4xl font-black text-indigo-400">{testResults.filter(t => t.status === 'passed').length}</div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Passed</div>
+                   </div>
+                   <div className="space-y-1">
+                      <div className="text-4xl font-black text-red-400">{testResults.filter(t => t.status === 'failed').length}</div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Failed</div>
+                   </div>
+                   <div className="space-y-1">
+                      <div className="text-4xl font-black text-white">{testResults.length}</div>
+                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Total Cases</div>
                    </div>
                 </div>
              </div>

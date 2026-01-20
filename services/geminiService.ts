@@ -44,7 +44,7 @@ export const marketplaceTools: FunctionDeclaration[] = [
     parameters: {
       type: Type.OBJECT,
       properties: {
-        view: { type: Type.STRING, enum: ['home', 'search', 'cart', 'checkout', 'seller-dashboard', 'compare', 'profile', 'orders'], description: 'The destination view' }
+        view: { type: Type.STRING, enum: ['home', 'search', 'cart', 'checkout', 'seller-dashboard', 'compare', 'profile', 'orders', 'tests'], description: 'The destination view' }
       },
       required: ['view']
     }

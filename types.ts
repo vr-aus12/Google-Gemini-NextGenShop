@@ -61,7 +61,7 @@ export interface User {
   cardCvv?: string;
 }
 
-export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'login' | 'register' | 'verify-email';
+export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'login' | 'register' | 'verify-email' | 'tests';
 
 export interface MarketplaceState {
   view: AppView;
