@@ -10,6 +10,17 @@ export interface Product {
   image: string;
   rating: number;
   specs: string[];
+  seller_id: string;
+  seller_name: string;
+}
+
+export interface Review {
+  id: string;
+  user_id: string;
+  user_name: string;
+  rating: number;
+  comment: string;
+  date: string;
 }
 
 export interface CartItem {
@@ -17,12 +28,24 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface OrderItem {
+  product_id: string;
+  product_name: string;
+  price: number;
+  quantity: number;
+  seller_id: string;
+  status: 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
+}
+
 export interface Order {
   id: string;
+  user_id: string;
   date: string;
   total: number;
-  status: 'Pending' | 'Shipped' | 'Delivered';
-  items: string[];
+  shipping_address: string;
+  payment_method: string;
+  status: 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled'; // Global status
+  items: OrderItem[];
 }
 
 export interface Analytics {
@@ -30,6 +53,7 @@ export interface Analytics {
   totalSales: number;
   topProduct: string;
   monthlyRevenue: { month: string; amount: number }[];
+  commission_earned: number;
 }
 
 export interface User {
@@ -37,9 +61,14 @@ export interface User {
   name: string;
   email: string;
   isLoggedIn: boolean;
+  role: 'buyer' | 'seller' | 'admin';
+  address?: string;
+  cardNumber?: string;
+  cardExpiry?: string;
+  cardCvv?: string;
 }
 
-export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare';
+export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders';
 
 export interface MarketplaceState {
   view: AppView;
@@ -52,5 +81,5 @@ export interface MarketplaceState {
   };
   cart: CartItem[];
   user: User | null;
-  compareList: string[]; // List of product IDs to compare
+  compareList: string[];
 }

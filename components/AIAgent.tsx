@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, X, Minimize2, Maximize2, Sparkles, Mic, MicOff, Send, Loader2 } from 'lucide-react';
+import { Bot, X, Sparkles, Mic, MicOff, Send, Loader2, MessageSquare, AudioLines, ChevronDown, ChevronUp } from 'lucide-react';
 import { GoogleGenAI, LiveServerMessage, Modality, Chat } from '@google/genai';
 import { marketplaceTools, createChatSession } from '../services/geminiService';
 import { Category, AppView, User, Product } from '../types';
@@ -13,6 +13,11 @@ interface AIAgentProps {
     navigateTo: (view: AppView) => void;
     addProduct: (p: Partial<Product>) => Promise<void>;
     compareProduct: (id: string) => void;
+    updateProfile: (p: any) => Promise<void>;
+    postReview: (productId: string, rating: number, comment: string) => Promise<void>;
+    updateOrderStatus: (orderId: string, status: string) => Promise<void>;
+    login: () => void;
+    checkout: () => Promise<void>;
   };
   currentCart: any[];
   products: Product[];
@@ -23,7 +28,6 @@ interface AIAgentProps {
   sellerTab: string;
 }
 
-// Manual base64 decoding logic as per instructions
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -34,7 +38,6 @@ function decode(base64: string) {
   return bytes;
 }
 
-// Manual base64 encoding logic as per instructions
 function encode(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
@@ -44,7 +47,6 @@ function encode(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-// Manual audio decoding for raw PCM bytes returned by Gemini Live API
 async function decodeAudioData(
   data: Uint8Array,
   ctx: AudioContext,
@@ -64,7 +66,6 @@ async function decodeAudioData(
   return buffer;
 }
 
-// Helper to create PCM blob for streaming to the model
 function createBlob(data: Float32Array) {
   const l = data.length;
   const int16 = new Int16Array(l);
@@ -87,15 +88,14 @@ const AIAgent: React.FC<AIAgentProps> = ({
   searchQuery,
   sellerTab
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
+  const [isLive, setIsLive] = useState(false);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<{ role: 'user' | 'bot'; text: string; tool?: string }[]>([
-    { role: 'bot', text: 'Hello! I am Nex. I can help you shop, compare items, or manage your seller dashboard. Click the mic to talk or type a message below!' }
+    { role: 'bot', text: 'Hello! I am Nex, your shopping assistant. I have access to your profile, orders, and products. How can I help?' }
   ]);
   
-  const [isLive, setIsLive] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sessionPromiseRef = useRef<Promise<any> | null>(null);
   const chatSessionRef = useRef<Chat | null>(null);
@@ -104,7 +104,6 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
-  // Refs to handle stale closures in long-lived session callbacks
   const actionsRef = useRef(actions);
   const productsRef = useRef(products);
   const userRef = useRef(user);
@@ -125,22 +124,14 @@ const AIAgent: React.FC<AIAgentProps> = ({
     searchQueryRef.current = searchQuery;
   }, [actions, products, user, currentCart, currentView, sellerTab, selectedProductId, searchQuery]);
 
-  // Auto-scroll chat to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
-
-  // Cleanup live session on unmount
-  useEffect(() => {
-    return () => {
-      stopLive();
-    };
-  }, []);
+  }, [messages, isOpen]);
 
   const getUIContext = () => {
-    return `Current UI Context: View=${currentViewRef.current}, User=${userRef.current?.name || 'Guest'}, Cart Items=${currentCartRef.current.length}, Selected Product ID: ${selectedProductIdRef.current || 'None'}, Search Query: ${searchQueryRef.current || 'None'}, Seller Tab: ${sellerTabRef.current}.`;
+    return `View=${currentViewRef.current}, User=${userRef.current?.name || 'Guest'}, Cart Size=${currentCartRef.current.length}, Search='${searchQueryRef.current}', SelectedProdID=${selectedProductIdRef.current}. Role=${userRef.current?.role}.`;
   };
 
   const executeToolCall = async (fc: any) => {
@@ -155,18 +146,20 @@ const AIAgent: React.FC<AIAgentProps> = ({
         act.viewProduct(fc.args.productId);
       } else if (fc.name === 'navigateTo') {
         act.navigateTo(fc.args.view as AppView);
-      } else if (fc.name === 'addNewProduct') {
-        await act.addProduct(fc.args);
-      } else if (fc.name === 'compareProducts') {
-        if (fc.args.productIds) {
-          fc.args.productIds.forEach((id: string) => act.compareProduct(id));
-        }
-        if (fc.args.goToView) act.navigateTo('compare');
-      } else if (fc.name === 'getSellerData') {
-        act.navigateTo('seller-dashboard');
+      } else if (fc.name === 'login') {
+        act.login();
+      } else if (fc.name === 'checkout') {
+        await act.checkout();
+      } else if (fc.name === 'updateProfile') {
+        await act.updateProfile(fc.args);
+      } else if (fc.name === 'postReview') {
+        await act.postReview(fc.args.productId, fc.args.rating, fc.args.comment);
+      } else if (fc.name === 'trackOrder') {
+        act.navigateTo('orders');
+      } else if (fc.name === 'setSellerOrderStatus') {
+        await act.updateOrderStatus(fc.args.orderId, fc.args.status);
       }
     } catch (err) {
-      console.error(`Tool Call Error [${fc.name}]:`, err);
       toolResult = { status: "error", message: String(err) };
     }
     return toolResult;
@@ -185,65 +178,42 @@ const AIAgent: React.FC<AIAgentProps> = ({
       if (!chatSessionRef.current) {
         chatSessionRef.current = createChatSession(getUIContext());
       }
-
       const response = await chatSessionRef.current.sendMessage({ message: userText });
-      
-      // Handle tool calls in text response
       if (response.functionCalls) {
         for (const fc of response.functionCalls) {
           await executeToolCall(fc);
-          setMessages(prev => [...prev, { role: 'bot', text: `Action triggered: ${fc.name}`, tool: fc.name }]);
+          setMessages(prev => [...prev, { role: 'bot', text: `Executing: ${fc.name}...`, tool: fc.name }]);
         }
       }
-
       if (response.text) {
         setMessages(prev => [...prev, { role: 'bot', text: response.text }]);
       }
     } catch (err) {
-      console.error("Text chat error:", err);
-      setMessages(prev => [...prev, { role: 'bot', text: "Sorry, I encountered an error processing your request. Please check your connection." }]);
+      setMessages(prev => [...prev, { role: 'bot', text: "Error connecting to AI." }]);
     } finally {
       setIsTyping(false);
     }
   };
 
   const stopLive = () => {
-    if (inputAudioContextRef.current) {
-      inputAudioContextRef.current.close().catch(() => {});
-      inputAudioContextRef.current = null;
-    }
-    if (outputAudioContextRef.current) {
-      outputAudioContextRef.current.close().catch(() => {});
-      outputAudioContextRef.current = null;
-    }
-    if (sessionPromiseRef.current) {
-      sessionPromiseRef.current.then(session => session.close()).catch(() => {});
-      sessionPromiseRef.current = null;
-    }
-    sourcesRef.current.forEach(s => {
-      try { s.stop(); } catch(e) {}
-    });
+    if (inputAudioContextRef.current) inputAudioContextRef.current.close().catch(() => {});
+    if (outputAudioContextRef.current) outputAudioContextRef.current.close().catch(() => {});
+    if (sessionPromiseRef.current) sessionPromiseRef.current.then(s => s.close()).catch(() => {});
+    sourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
     sourcesRef.current.clear();
-    nextStartTimeRef.current = 0;
     setIsLive(false);
   };
 
   const startLive = async () => {
-    if (isLive) {
-      stopLive();
-      return;
-    }
-
+    if (isLive) { stopLive(); return; }
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       inputAudioContextRef.current = inputCtx;
       outputAudioContextRef.current = outputCtx;
-
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Create live connection and handle all events
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
@@ -252,20 +222,13 @@ const AIAgent: React.FC<AIAgentProps> = ({
             const source = inputCtx.createMediaStreamSource(stream);
             const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
-              const inputData = e.inputBuffer.getChannelData(0);
-              const pcmBlob = createBlob(inputData);
-              // CRITICAL: Use sessionPromise to ensure connection is ready before sending data
-              sessionPromise.then((session) => {
-                session.sendRealtimeInput({ media: pcmBlob });
-              }).catch(err => {
-                console.warn("Realtime input send failed:", err);
-              });
+              const pcmBlob = createBlob(e.inputBuffer.getChannelData(0));
+              sessionPromise.then(s => s.sendRealtimeInput({ media: pcmBlob }));
             };
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputCtx.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
-            // 1. Process Audio Output
             const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio && outputAudioContextRef.current) {
               const ctx = outputAudioContextRef.current;
@@ -275,168 +238,87 @@ const AIAgent: React.FC<AIAgentProps> = ({
               source.buffer = audioBuffer;
               source.connect(ctx.destination);
               source.onended = () => sourcesRef.current.delete(source);
-              // Schedule playback for gapless audio
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               sourcesRef.current.add(source);
             }
-
-            // 2. Handle Interruption
-            if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(s => {
-                try { s.stop(); } catch(e) {}
-              });
-              sourcesRef.current.clear();
-              nextStartTimeRef.current = 0;
-            }
-
-            // 3. Handle Tool Calls
             if (message.toolCall) {
               for (const fc of message.toolCall.functionCalls) {
-                const toolResult = await executeToolCall(fc);
-
-                // Send response back to model
-                sessionPromise.then(session => {
-                  session.sendToolResponse({
-                    functionResponses: {
-                      id: fc.id,
-                      name: fc.name,
-                      response: toolResult
-                    }
-                  });
-                });
-
-                setMessages(prev => [...prev, { role: 'bot', text: `Action triggered: ${fc.name}`, tool: fc.name }]);
+                const result = await executeToolCall(fc);
+                sessionPromise.then(s => s.sendToolResponse({ functionResponses: { id: fc.id, name: fc.name, response: result } }));
+                setMessages(prev => [...prev, { role: 'bot', text: `AI Tool Call: ${fc.name}`, tool: fc.name }]);
               }
             }
-
-            // 4. Capture transcriptions as messages
             if (message.serverContent?.modelTurn?.parts?.[0]?.text) {
-               setMessages(prev => [...prev, { role: 'bot', text: message.serverContent?.modelTurn?.parts?.[0]?.text! }]);
+              setMessages(prev => [...prev, { role: 'bot', text: message.serverContent?.modelTurn?.parts?.[0]?.text! }]);
             }
           },
-          onerror: (e) => {
-            console.error("Gemini Live API Error details:", e);
-            setMessages(prev => [...prev, { role: 'bot', text: "Connection error. Please try again in a moment." }]);
-            stopLive();
-          },
-          onclose: (e) => {
-            console.log("Gemini Live session closed:", e);
-            stopLive();
-          }
+          onerror: stopLive,
+          onclose: stopLive
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-          },
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } } },
           tools: [{ functionDeclarations: marketplaceTools }],
-          systemInstruction: `You are Nex, the proactive shopping assistant for NexShop.
-          ${getUIContext()}
-          
-          Use searchProducts for search requests.
-          Use viewProduct for viewing a specific item.
-          Use compareProducts to compare items side-by-side.
-          Use navigateTo to change views (home, cart, etc).`
+          systemInstruction: `You are Nex. ${getUIContext()}`
         }
       });
       sessionPromiseRef.current = sessionPromise;
-    } catch (err) {
-      console.error("Failed to connect to Gemini Live:", err);
-      setMessages(prev => [...prev, { role: 'bot', text: "Could not establish audio connection. Check mic permissions." }]);
-      setIsLive(false);
-    }
+    } catch (err) { setIsLive(false); }
   };
 
-  if (!isOpen) {
-    return (
-      <button 
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all z-50 group"
-      >
-        <Bot className="w-7 h-7" />
-        <span className="absolute -top-12 right-0 bg-white text-indigo-600 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border">
-          Talk to Nex
-        </span>
-      </button>
-    );
-  }
-
   return (
-    <div className={`fixed bottom-6 right-6 bg-white rounded-3xl shadow-2xl z-50 flex flex-col transition-all overflow-hidden border ${isExpanded ? 'w-[500px] h-[600px]' : 'w-[350px] h-[500px]'}`}>
-      {/* Header */}
-      <div className="bg-indigo-600 p-4 text-white flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5" />
-          <span className="font-bold">Nex Shopping Assistant</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setIsExpanded(!isExpanded)} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
-            {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-          <button onClick={() => { stopLive(); setIsOpen(false); }} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4 pointer-events-none">
+      {isOpen ? (
+        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border flex flex-col w-80 sm:w-96 h-[550px] pointer-events-auto animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className="bg-slate-900 p-4 text-white flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Bot className="w-6 h-6 text-indigo-400" />
+              <div>
+                <span className="font-bold text-sm block">Nex Shopping Agent</span>
+                <span className="text-[10px] text-indigo-400 uppercase tracking-widest">{isLive ? 'Live Voice' : 'Text Assistant'}</span>
+              </div>
+            </div>
+            <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-slate-800 rounded-lg transition-colors"><ChevronDown size={20}/></button>
+          </div>
 
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
-              m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-md' : 'bg-white text-slate-700 border rounded-tl-none shadow-sm'
-            }`}>
-              {m.text}
-              {m.tool && (
-                <div className="mt-2 text-[10px] font-bold uppercase text-indigo-500 flex items-center gap-1 border-t pt-2 border-slate-100">
-                  <Sparkles className="w-3 h-3" /> {m.tool}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] p-3.5 rounded-2xl text-sm leading-relaxed ${
+                  m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none shadow-md' : 'bg-white border rounded-bl-none text-slate-700 shadow-sm'
+                }`}>
+                  {m.text}
+                  {m.tool && <div className="mt-2 text-[9px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Sparkles size={8}/> {m.tool}</div>}
                 </div>
-              )}
+              </div>
+            ))}
+            {isTyping && <Loader2 size={16} className="animate-spin text-indigo-600 mx-auto" />}
+          </div>
+
+          <div className="p-4 border-t bg-white space-y-3">
+            <div className="flex items-center gap-2">
+              <button onClick={startLive} className={`p-3 rounded-full transition-all ${isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-indigo-50 text-indigo-600'}`}>
+                {isLive ? <AudioLines size={20} /> : <Mic size={20}/>}
+              </button>
+              <form onSubmit={handleSendMessage} className="flex-1 flex gap-2">
+                <input 
+                  type="text" value={input} 
+                  onChange={e => setInput(e.target.value)}
+                  placeholder="Ask me to search, track, or buy..."
+                  className="flex-1 bg-slate-100 border-none rounded-2xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                />
+                <button disabled={!input.trim() || isTyping} className="p-2.5 bg-slate-900 text-white rounded-2xl disabled:opacity-20"><Send size={18}/></button>
+              </form>
             </div>
           </div>
-        ))}
-        {isTyping && (
-          <div className="flex justify-start">
-            <div className="bg-white border p-3 rounded-2xl rounded-tl-none shadow-sm">
-               <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div className="p-4 bg-white border-t space-y-3">
-        {/* Text Input */}
-        <form onSubmit={handleSendMessage} className="flex gap-2">
-          <input 
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={isLive ? "Voice mode active..." : "Type a message..."}
-            className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 transition-all"
-            disabled={isLive || isTyping}
-          />
-          <button 
-            type="submit"
-            disabled={isLive || isTyping || !input.trim()}
-            className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </form>
-
-        {/* Voice Toggle */}
-        <button 
-          onClick={startLive}
-          className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-bold transition-all shadow-sm ${
-            isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-          }`}
-        >
-          {isLive ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-          {isLive ? "Stop Conversation" : "Start Voice Conversation"}
+        </div>
+      ) : (
+        <button onClick={() => setIsOpen(true)} className="pointer-events-auto w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-all group">
+          <Bot size={28} className="group-hover:rotate-12 transition-transform" />
+          <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-full border-2 border-white"></div>
         </button>
-      </div>
+      )}
     </div>
   );
 };

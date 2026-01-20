@@ -21,7 +21,7 @@ export const marketplaceTools: FunctionDeclaration[] = [
     parameters: {
       type: Type.OBJECT,
       properties: {
-        productId: { type: Type.STRING, description: 'The unique ID or Name of the product' },
+        productId: { type: Type.STRING, description: 'The unique ID or exact Name of the product' },
         quantity: { type: Type.NUMBER, description: 'How many items to add' }
       },
       required: ['productId']
@@ -44,45 +44,74 @@ export const marketplaceTools: FunctionDeclaration[] = [
     parameters: {
       type: Type.OBJECT,
       properties: {
-        view: { type: Type.STRING, enum: ['home', 'search', 'cart', 'checkout', 'seller-dashboard', 'compare'], description: 'The destination view' }
+        view: { type: Type.STRING, enum: ['home', 'search', 'cart', 'checkout', 'seller-dashboard', 'compare', 'profile', 'orders'], description: 'The destination view' }
       },
       required: ['view']
     }
   },
   {
-    name: 'addNewProduct',
-    description: 'Allows a seller to list a new product in the marketplace.',
+    name: 'login',
+    description: 'Signs the user in to the platform to access orders, cart, and profile.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {}
+    }
+  },
+  {
+    name: 'checkout',
+    description: 'Initiates the checkout process for items in the cart.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {}
+    }
+  },
+  {
+    name: 'updateProfile',
+    description: 'Updates user personal information, address, or payment details.',
     parameters: {
       type: Type.OBJECT,
       properties: {
-        name: { type: Type.STRING, description: 'The product name' },
-        description: { type: Type.STRING, description: 'Detailed product description' },
-        price: { type: Type.NUMBER, description: 'Price of the item' },
-        category: { type: Type.STRING, description: 'Category (Gaming, Audio, Workstation, Electronics)' },
-        specs: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of features' }
+        name: { type: Type.STRING },
+        address: { type: Type.STRING },
+        cardNumber: { type: Type.STRING },
+        cardExpiry: { type: Type.STRING },
+        cardCvv: { type: Type.STRING }
+      }
+    }
+  },
+  {
+    name: 'postReview',
+    description: 'Submits a review for a specific product.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        productId: { type: Type.STRING },
+        rating: { type: Type.NUMBER, description: 'Rating from 1 to 5' },
+        comment: { type: Type.STRING }
       },
-      required: ['name', 'description', 'price', 'category', 'specs']
+      required: ['productId', 'rating', 'comment']
     }
   },
   {
-    name: 'compareProducts',
-    description: 'Adds products to the comparison list or takes user to the comparison view.',
+    name: 'trackOrder',
+    description: 'Checks the status of an order or navigates to the orders page.',
     parameters: {
       type: Type.OBJECT,
       properties: {
-        productIds: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of product IDs or names to compare' },
-        goToView: { type: Type.BOOLEAN, description: 'Whether to navigate to the compare view immediately' }
+        orderId: { type: Type.STRING, description: 'Optional specific order ID' }
       }
     }
   },
   {
-    name: 'getSellerData',
-    description: 'Navigates to the seller dashboard and selects a specific tab like analytics or orders.',
+    name: 'setSellerOrderStatus',
+    description: 'Allows a seller to update the fulfillment status of an order.',
     parameters: {
       type: Type.OBJECT,
       properties: {
-        tab: { type: Type.STRING, enum: ['analytics', 'orders', 'inventory'], description: 'The tab to open' }
-      }
+        orderId: { type: Type.STRING },
+        status: { type: Type.STRING, enum: ['Pending', 'Shipped', 'Delivered', 'Cancelled'] }
+      },
+      required: ['orderId', 'status']
     }
   }
 ];
@@ -92,23 +121,23 @@ export function createChatSession(initialContext?: string): Chat {
   return ai.chats.create({
     model: 'gemini-3-flash-preview',
     config: {
-      systemInstruction: `You are Nex, the proactive shopping assistant for NexShop.
+      systemInstruction: `You are Nex, the high-end retail AI for NexShop.
       
-      CRITICAL CONTEXT:
-      ${initialContext || "No current context."}
+      CURRENT APP STATE:
+      ${initialContext || "No context provided."}
       
-      YOUR CAPABILITIES:
-      1. Search: Use 'searchProducts' for general queries.
-      2. Product Details: Use 'viewProduct' if the user wants to see more about an item.
-      3. Cart: Use 'addToCart' to add items. 
-      4. Navigation: Use 'navigateTo' to move between home, cart, checkout, seller-dashboard, and compare.
-      5. Selling: Use 'addNewProduct' if a user wants to list an item. For seller insights, use 'getSellerData' to show analytics or orders.
-      6. Comparison: Use 'compareProducts' to help users decide between items.
+      YOUR ROLE:
+      - You can perform ANY action the user can do in the UI.
+      - Search, Add to cart, Navigate, Login, Checkout, Manage Profile, Post Reviews, and Track Orders.
+      - If you are in seller mode, you can update order statuses.
       
-      VOICE INTERACTION:
-      You are speaking to the user directly. Keep your spoken responses friendly and natural.`,
+      GUIDELINES:
+      - Always use the tools to perform actions.
+      - If a user wants to buy something, guide them through adding to cart and then suggest 'checkout'.
+      - If they aren't logged in and want to see orders, call the 'login' tool first.
+      
+      VOICE PERSONA: Professional and proactive.`,
       tools: [{ functionDeclarations: marketplaceTools }],
-      thinkingConfig: { thinkingBudget: 0 }
     }
   });
 }

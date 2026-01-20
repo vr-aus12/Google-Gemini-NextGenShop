@@ -10,7 +10,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Gaming',
     image: 'https://picsum.photos/seed/keyboard/400/400',
     rating: 4.8,
-    specs: ['RGB Lighting', 'Tactile Brown Switches', 'Aluminum Frame']
+    specs: ['RGB Lighting', 'Tactile Brown Switches', 'Aluminum Frame'],
+    // Added missing seller properties
+    seller_id: 's1',
+    seller_name: 'Gaming Central'
   },
   {
     id: '2',
@@ -20,7 +23,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Gaming',
     image: 'https://picsum.photos/seed/mouse/400/400',
     rating: 4.9,
-    specs: ['Lightspeed Wireless', 'HERO 25K Sensor', '80g Lightweight']
+    specs: ['Lightspeed Wireless', 'HERO 25K Sensor', '80g Lightweight'],
+    // Added missing seller properties
+    seller_id: 's2',
+    seller_name: 'ProGear'
   },
   {
     id: '3',
@@ -30,7 +36,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Audio',
     image: 'https://picsum.photos/seed/headphones/400/400',
     rating: 4.7,
-    specs: ['30h Battery', 'LDAC Support', 'Multi-point Bluetooth']
+    specs: ['30h Battery', 'LDAC Support', 'Multi-point Bluetooth'],
+    // Added missing seller properties
+    seller_id: 's3',
+    seller_name: 'Audio Hub'
   },
   {
     id: '4',
@@ -40,7 +49,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Workstation',
     image: 'https://picsum.photos/seed/chair/400/400',
     rating: 4.6,
-    specs: ['Adjustable Lumbar', '4D Armrests', 'Breathable Mesh']
+    specs: ['Adjustable Lumbar', '4D Armrests', 'Breathable Mesh'],
+    // Added missing seller properties
+    seller_id: 's4',
+    seller_name: 'Office Pro'
   },
   {
     id: '5',
@@ -50,7 +62,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Gaming',
     image: 'https://picsum.photos/seed/monitor/400/400',
     rating: 4.5,
-    specs: ['240Hz', '1ms response', 'QLED Technology']
+    specs: ['240Hz', '1ms response', 'QLED Technology'],
+    // Added missing seller properties
+    seller_id: 's1',
+    seller_name: 'Gaming Central'
   },
   {
     id: '6',
@@ -60,7 +75,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Electronics',
     image: 'https://picsum.photos/seed/laptop/400/400',
     rating: 4.9,
-    specs: ['M3 Pro Chip', 'Liquid Retina XDR', '18GB RAM']
+    specs: ['M3 Pro Chip', 'Liquid Retina XDR', '18GB RAM'],
+    // Added missing seller properties
+    seller_id: 's5',
+    seller_name: 'Apple Store'
   },
   {
     id: '7',
@@ -70,7 +88,10 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Workstation',
     image: 'https://picsum.photos/seed/keychron/400/400',
     rating: 4.8,
-    specs: ['Gasket Mount', 'Double-shot PBT', 'Screw-in stabs']
+    specs: ['Gasket Mount', 'Double-shot PBT', 'Screw-in stabs'],
+    // Added missing seller properties
+    seller_id: 's6',
+    seller_name: 'Keyboard Enthusiasts'
   },
   {
     id: '8',
@@ -80,6 +101,9 @@ export const DUMMY_PRODUCTS: Product[] = [
     category: 'Audio',
     image: 'https://picsum.photos/seed/mic/400/400',
     rating: 4.4,
-    specs: ['Tri-capsule array', 'Multiple patterns', 'USB connection']
+    specs: ['Tri-capsule array', 'Multiple patterns', 'USB connection'],
+    // Added missing seller properties
+    seller_id: 's3',
+    seller_name: 'Audio Hub'
   }
 ];
