@@ -1,6 +1,6 @@
 {
-  "name": "Copy of Gemini-Powered Marketplace",
-  "description": "A high-end retail marketplace featuring a proactive AI shopping assistant that can navigate, search, filter, and manage your cart through natural language.",
+  "name": "NexShop | AI-Powered Voice Marketplace",
+  "description": "A high-end retail marketplace featuring a voice-to-voice AI shopping assistant and seller tools.",
   "requestFramePermissions": [
     "microphone"
   ]

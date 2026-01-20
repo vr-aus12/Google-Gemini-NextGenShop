@@ -17,6 +17,21 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface Order {
+  id: string;
+  date: string;
+  total: number;
+  status: 'Pending' | 'Shipped' | 'Delivered';
+  items: string[];
+}
+
+export interface Analytics {
+  totalRevenue: number;
+  totalSales: number;
+  topProduct: string;
+  monthlyRevenue: { month: string; amount: number }[];
+}
+
 export interface User {
   id: string;
   name: string;
@@ -24,7 +39,7 @@ export interface User {
   isLoggedIn: boolean;
 }
 
-export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout';
+export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare';
 
 export interface MarketplaceState {
   view: AppView;
@@ -37,4 +52,5 @@ export interface MarketplaceState {
   };
   cart: CartItem[];
   user: User | null;
+  compareList: string[]; // List of product IDs to compare
 }

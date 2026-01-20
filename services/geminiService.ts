@@ -1,9 +1,7 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-const marketplaceTools: FunctionDeclaration[] = [
+export const marketplaceTools: FunctionDeclaration[] = [
   {
     name: 'searchProducts',
     description: 'Searches for products based on a query, category, and price range.',
@@ -23,7 +21,7 @@ const marketplaceTools: FunctionDeclaration[] = [
     parameters: {
       type: Type.OBJECT,
       properties: {
-        productId: { type: Type.STRING, description: 'The unique ID of the product' },
+        productId: { type: Type.STRING, description: 'The unique ID or Name of the product' },
         quantity: { type: Type.NUMBER, description: 'How many items to add' }
       },
       required: ['productId']
@@ -35,7 +33,7 @@ const marketplaceTools: FunctionDeclaration[] = [
     parameters: {
       type: Type.OBJECT,
       properties: {
-        productId: { type: Type.STRING, description: 'The unique ID of the product' }
+        productId: { type: Type.STRING, description: 'The unique ID or Name of the product' }
       },
       required: ['productId']
     }
@@ -46,30 +44,71 @@ const marketplaceTools: FunctionDeclaration[] = [
     parameters: {
       type: Type.OBJECT,
       properties: {
-        view: { type: Type.STRING, enum: ['home', 'cart', 'checkout'], description: 'The destination view' }
+        view: { type: Type.STRING, enum: ['home', 'search', 'cart', 'checkout', 'seller-dashboard', 'compare'], description: 'The destination view' }
       },
       required: ['view']
+    }
+  },
+  {
+    name: 'addNewProduct',
+    description: 'Allows a seller to list a new product in the marketplace.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING, description: 'The product name' },
+        description: { type: Type.STRING, description: 'Detailed product description' },
+        price: { type: Type.NUMBER, description: 'Price of the item' },
+        category: { type: Type.STRING, description: 'Category (Gaming, Audio, Workstation, Electronics)' },
+        specs: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of features' }
+      },
+      required: ['name', 'description', 'price', 'category', 'specs']
+    }
+  },
+  {
+    name: 'compareProducts',
+    description: 'Adds products to the comparison list or takes user to the comparison view.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        productIds: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of product IDs or names to compare' },
+        goToView: { type: Type.BOOLEAN, description: 'Whether to navigate to the compare view immediately' }
+      }
+    }
+  },
+  {
+    name: 'getSellerData',
+    description: 'Navigates to the seller dashboard and selects a specific tab like analytics or orders.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        tab: { type: Type.STRING, enum: ['analytics', 'orders', 'inventory'], description: 'The tab to open' }
+      }
     }
   }
 ];
 
-export function createChatSession(): Chat {
+export function createChatSession(initialContext?: string): Chat {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   return ai.chats.create({
     model: 'gemini-3-flash-preview',
     config: {
-      systemInstruction: `You are an expert shopping assistant for NexShop. 
-      Your goal is to help users find products, manage their cart, and navigate the app.
-      When a user asks to find something, use the searchProducts tool.
-      If a user wants more details on an item, use viewProduct.
-      If they want to buy or check out, navigate them to the cart or checkout.
-      Provide helpful, brief, and friendly responses. If you use a tool, also acknowledge it briefly in text.`,
+      systemInstruction: `You are Nex, the proactive shopping assistant for NexShop.
+      
+      CRITICAL CONTEXT:
+      ${initialContext || "No current context."}
+      
+      YOUR CAPABILITIES:
+      1. Search: Use 'searchProducts' for general queries.
+      2. Product Details: Use 'viewProduct' if the user wants to see more about an item.
+      3. Cart: Use 'addToCart' to add items. 
+      4. Navigation: Use 'navigateTo' to move between home, cart, checkout, seller-dashboard, and compare.
+      5. Selling: Use 'addNewProduct' if a user wants to list an item. For seller insights, use 'getSellerData' to show analytics or orders.
+      6. Comparison: Use 'compareProducts' to help users decide between items.
+      
+      VOICE INTERACTION:
+      You are speaking to the user directly. Keep your spoken responses friendly and natural.`,
       tools: [{ functionDeclarations: marketplaceTools }],
-      thinkingConfig: { thinkingBudget: 0 } // Disable thinking for maximum speed in UI navigation
+      thinkingConfig: { thinkingBudget: 0 }
     }
   });
-}
-
-export async function sendAgentMessage(chat: Chat, prompt: string) {
-  const response = await chat.sendMessage({ message: prompt });
-  return response;
 }
