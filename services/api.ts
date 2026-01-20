@@ -24,6 +24,15 @@ const saveLocalCart = (userId: string, cart: CartItem[]) => {
   localStorage.setItem('mock_carts', JSON.stringify(carts));
 };
 
+export class ApiError extends Error {
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+    this.name = 'ApiError';
+  }
+}
+
 async function safeFetch<T>(url: string, options?: RequestInit, fallback?: T): Promise<T> {
   try {
     const res = await fetch(url, {
@@ -32,11 +41,18 @@ async function safeFetch<T>(url: string, options?: RequestInit, fallback?: T): P
     });
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(errorData.detail || 'API Error');
+      throw new ApiError(errorData.detail || 'API Error', res.status);
     }
     return await res.json();
   } catch (err: any) {
-    console.warn(`API error at ${url}: ${err.message}`);
+    // If it's already an ApiError (from the !res.ok block), just throw it
+    if (err instanceof ApiError) {
+      if (fallback !== undefined) return fallback;
+      throw err;
+    }
+    
+    // Otherwise it's a network error/timeout
+    console.warn(`Network error at ${url}: ${err.message}`);
     if (fallback !== undefined) return fallback;
     throw err;
   }
@@ -54,6 +70,9 @@ export const api = {
       });
       return res;
     } catch (e) {
+      // If server explicitly rejected (e.g. 400 Email registered), don't fallback
+      if (e instanceof ApiError) throw e;
+      
       // Offline fallback: store in local storage
       const mockUser = { ...data, id: 'mock-' + Date.now(), isVerified: false, verificationToken: fallback.token, role: 'buyer' };
       saveLocalUser(mockUser);
@@ -70,7 +89,17 @@ export const api = {
       });
       return { ...data, isLoggedIn: true, isVerified: !!data.isVerified };
     } catch (e) {
-      // Offline fallback: check local storage
+      // If server explicitly rejected credentials (401), re-throw that specific error immediately
+      if (e instanceof ApiError && e.status === 401) {
+        throw e;
+      }
+
+      // If it's some other API error that's NOT a connectivity issue, throw it
+      if (e instanceof ApiError) {
+        throw e;
+      }
+
+      // Connectivity issue fallback: check local storage
       const users = getLocalUsers();
       const user = users.find((u: any) => u.email === credentials.email && u.password === credentials.password);
       if (user) {
@@ -84,6 +113,8 @@ export const api = {
     try {
       return await safeFetch(`${API_BASE}/verify-email/${token}`);
     } catch (e) {
+      if (e instanceof ApiError) throw e;
+      
       const users = getLocalUsers();
       const userIdx = users.findIndex((u: any) => u.verificationToken === token);
       if (userIdx !== -1) {
@@ -154,6 +185,7 @@ export const api = {
         body: JSON.stringify({ user_id: userId, product_id: productId, quantity })
       });
     } catch (e) {
+      if (e instanceof ApiError) throw e;
       // Offline fallback: Update local cart
       const cart = getLocalCart(userId);
       const existing = cart.find(i => i.product.id === productId);

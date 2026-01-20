@@ -187,7 +187,7 @@ const App: React.FC = () => {
       setState(prev => ({ ...prev, user, view: 'home' }));
       localStorage.setItem('nexshop_user', JSON.stringify(user));
     } catch (err: any) {
-      alert("Login failed: " + err.message);
+      alert("Login Error: " + err.message);
     } finally {
       setIsAuthenticating(false);
     }
