@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing, ClipboardCheck } from 'lucide-react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing, ClipboardCheck, Terminal, TrendingUp, Users, DollarSign, PackageOpen, ChevronDown } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
@@ -42,7 +42,6 @@ const App: React.FC = () => {
     if (state.user) {
       api.getCart(state.user.id).then(c => setState(prev => ({ ...prev, cart: c })));
     }
-    handleRunTests();
   }, [state.user?.id]);
 
   useEffect(() => {
@@ -110,6 +109,7 @@ const App: React.FC = () => {
         await api.updateProfile(state.user.id, p);
         const updated = await api.getUser(state.user.id);
         setState(prev => ({ ...prev, user: updated }));
+        localStorage.setItem('nexshop_user', JSON.stringify(updated));
       }
     },
     postReview: async (productId: string, rating: number, comment: string) => {
@@ -246,7 +246,6 @@ const App: React.FC = () => {
     }, 1200);
   };
 
-  const cartTotal = state.cart.reduce((acc, i) => acc + (i.product.price * i.quantity), 0);
   const selectedProduct = products.find(p => p.id === state.selectedProductId);
 
   return (
@@ -325,6 +324,24 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          {state.user?.role === 'buyer' && (
+            <button 
+              onClick={() => actions.updateProfile({ role: 'seller' })}
+              className="hidden lg:flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors bg-white border px-4 py-2 rounded-full shadow-sm"
+            >
+              <Store size={14}/> Become a Seller
+            </button>
+          )}
+          
+          {state.user?.role === 'seller' && (
+            <button 
+              onClick={() => actions.navigateTo('seller-dashboard')}
+              className={`hidden lg:flex items-center gap-2 text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-sm transition-all ${state.view === 'seller-dashboard' ? 'bg-slate-900 text-white' : 'bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50'}`}
+            >
+              <BarChart3 size={14}/> Dashboard
+            </button>
+          )}
+
           <button onClick={() => actions.navigateTo('tests')} className={`p-2.5 transition-colors ${state.view === 'tests' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`} title="Test Center">
             <ClipboardCheck className="w-5 h-5" />
           </button>
@@ -542,6 +559,10 @@ const App: React.FC = () => {
                    <div>
                       <h2 className="text-xl font-bold">{state.user.name}</h2>
                       <p className="text-slate-400">{state.user.email}</p>
+                      <div className="mt-1 flex gap-2">
+                        <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-black uppercase tracking-widest text-slate-500">{state.user.role}</span>
+                        {state.user.isVerified && <span className="px-2 py-0.5 bg-green-50 rounded text-[10px] font-black uppercase tracking-widest text-green-600 flex items-center gap-1"><CheckCircle size={8}/> Verified</span>}
+                      </div>
                    </div>
                 </div>
                 <div className="pt-6 border-t space-y-4">
@@ -554,69 +575,247 @@ const App: React.FC = () => {
                         placeholder="Update your address..."
                       />
                    </div>
+                   <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Card Number</label>
+                        <input 
+                          type="text" 
+                          defaultValue={state.user.cardNumber}
+                          onChange={(e) => actions.updateProfile({ cardNumber: e.target.value })}
+                          className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" 
+                          placeholder="**** **** **** 1234"
+                        />
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Expiry</label>
+                          <input type="text" className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" placeholder="MM/YY" />
+                        </div>
+                        <div className="w-20">
+                          <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">CVV</label>
+                          <input type="text" className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" placeholder="***" />
+                        </div>
+                      </div>
+                   </div>
                 </div>
              </div>
            </div>
         )}
 
         {state.view === 'tests' && (
-           <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-700">
-             <div className="flex justify-between items-end">
-               <div className="space-y-2">
-                 <h1 className="text-5xl font-black tracking-tight">Test Center</h1>
-                 <p className="text-slate-500">Automated functional verification of NexShop services.</p>
-               </div>
-               <button onClick={handleRunTests} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all">
-                 <RefreshCcw size={18} /> Re-run Complete Suite
-               </button>
-             </div>
-
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               {testResults.map((tr, i) => (
-                 <div key={i} className="bg-white border p-6 rounded-[32px] flex items-start gap-4 shadow-sm hover:shadow-md transition-all">
-                   <div className={`p-3 rounded-2xl ${
-                     tr.status === 'passed' ? 'bg-green-50 text-green-600' : 
-                     tr.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600 animate-pulse'
-                   }`}>
-                     {tr.status === 'passed' ? <CheckCircle size={24}/> : tr.status === 'failed' ? <ShieldAlert size={24}/> : <RefreshCcw size={24} className="animate-spin"/>}
-                   </div>
-                   <div className="flex-1 space-y-1">
-                     <div className="flex justify-between items-center">
-                       <h3 className="font-bold text-slate-900">{tr.name}</h3>
-                       <span className={`text-[10px] font-black uppercase tracking-widest ${
-                         tr.status === 'passed' ? 'text-green-500' : tr.status === 'failed' ? 'text-red-500' : 'text-indigo-400'
-                       }`}>{tr.status}</span>
-                     </div>
-                     {tr.error ? (
-                       <p className="text-xs text-red-400 bg-red-50/50 p-2 rounded-lg border border-red-100 font-mono mt-2">{tr.error}</p>
-                     ) : (
-                       <p className="text-xs text-slate-400">Verification successful. System is stable.</p>
-                     )}
-                   </div>
+           <div className="max-w-5xl mx-auto space-y-12 animate-in fade-in duration-700 py-10">
+             {/* Test results HTML report implementation... */}
+             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b pb-8">
+               <div className="space-y-3">
+                 <div className="flex items-center gap-3">
+                   <div className="bg-slate-900 text-white p-2 rounded-xl"><Terminal size={24}/></div>
+                   <h1 className="text-5xl font-black tracking-tighter">Test Center</h1>
                  </div>
-               ))}
+                 <p className="text-slate-500 max-w-md">Comprehensive HTML audit report for NexShop's functional services and API integrity.</p>
+               </div>
+               <div className="flex items-center gap-4">
+                 <button onClick={handleRunTests} className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-800 transition-all shadow-xl shadow-slate-200">
+                   <RefreshCcw size={18} /> Re-run Suite
+                 </button>
+               </div>
+             </div>
+             {/* ... (Existing Test Center Content) */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+               <div className="bg-white border-2 border-slate-100 p-8 rounded-[40px] space-y-2">
+                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Status</p>
+                 <div className="flex items-center gap-3">
+                   <div className={`w-3 h-3 rounded-full ${testResults.every(t => t.status === 'passed') ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                   <h2 className="text-2xl font-bold">{testResults.every(t => t.status === 'passed') ? 'All Systems Go' : 'Issues Detected'}</h2>
+                 </div>
+               </div>
+               <div className="bg-white border-2 border-slate-100 p-8 rounded-[40px] space-y-2">
+                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Integrity</p>
+                 <h2 className="text-3xl font-black">{Math.round((testResults.filter(t => t.status === 'passed').length / (testResults.length || 1)) * 100)}% <span className="text-sm text-slate-400 font-medium">Compliance</span></h2>
+               </div>
+               <div className="bg-white border-2 border-slate-100 p-8 rounded-[40px] space-y-2">
+                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Environment</p>
+                 <h2 className="text-2xl font-bold flex items-center gap-2"><div className="w-5 h-5 bg-indigo-100 text-indigo-600 rounded flex items-center justify-center text-[10px]">P</div> Production</h2>
+               </div>
+             </div>
+             <div className="bg-white border border-slate-200 rounded-[48px] overflow-hidden shadow-sm">
+                <div className="divide-y">
+                  {testResults.map((tr, i) => (
+                    <div key={i} className="px-8 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-slate-300">0{i+1}</span>
+                          <h4 className="font-bold text-slate-900">{tr.name}</h4>
+                        </div>
+                        {tr.error && <p className="text-xs text-red-500 font-mono mt-1">{tr.error}</p>}
+                      </div>
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl ${tr.status === 'passed' ? 'text-green-600 bg-green-50' : tr.status === 'failed' ? 'text-red-600 bg-red-50' : 'text-indigo-400 bg-indigo-50'}`}>{tr.status}</span>
+                    </div>
+                  ))}
+                </div>
+             </div>
+           </div>
+        )}
+
+        {state.view === 'seller-dashboard' && (
+           <div className="space-y-10 animate-in fade-in duration-500">
+             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+               <div className="space-y-2">
+                 <div className="flex items-center gap-3">
+                   <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center"><BarChart3 size={24}/></div>
+                   <h1 className="text-5xl font-black tracking-tighter">Business Console</h1>
+                 </div>
+                 <p className="text-slate-500">Managing <span className="text-indigo-600 font-bold">{state.user?.name}'s</span> store performance and inventory.</p>
+               </div>
+               <div className="flex bg-white p-1 rounded-2xl border shadow-sm">
+                 {[
+                   { id: 'analytics', label: 'Analytics', icon: TrendingUp },
+                   { id: 'orders', label: 'Fulfillment', icon: PackageOpen },
+                   { id: 'inventory', label: 'Inventory', icon: Store }
+                 ].map(tab => (
+                   <button 
+                     key={tab.id}
+                     onClick={() => setSellerTab(tab.id as any)}
+                     className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${sellerTab === tab.id ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}
+                   >
+                     <tab.icon size={14}/> {tab.label}
+                   </button>
+                 ))}
+               </div>
              </div>
 
-             <div className="bg-slate-900 text-white p-10 rounded-[48px] space-y-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-indigo-500 rounded-2xl flex items-center justify-center"><ShieldCheck size={28}/></div>
-                  <h2 className="text-2xl font-bold">System Integrity Report</h2>
-                </div>
-                <div className="grid grid-cols-3 gap-8">
-                   <div className="space-y-1">
-                      <div className="text-4xl font-black text-indigo-400">{testResults.filter(t => t.status === 'passed').length}</div>
-                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Passed</div>
-                   </div>
-                   <div className="space-y-1">
-                      <div className="text-4xl font-black text-red-400">{testResults.filter(t => t.status === 'failed').length}</div>
-                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Failed</div>
-                   </div>
-                   <div className="space-y-1">
-                      <div className="text-4xl font-black text-white">{testResults.length}</div>
-                      <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Total Cases</div>
-                   </div>
-                </div>
-             </div>
+             {sellerTab === 'analytics' && (
+               <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
+                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                   {[
+                     { label: 'Net Revenue', val: '$14,290.00', sub: '+12.4% vs last mo', icon: DollarSign, color: 'indigo' },
+                     { label: 'Active Orders', val: '18', sub: '3 needing attention', icon: Package, color: 'blue' },
+                     { label: 'Total Customers', val: '248', sub: '+22 new this week', icon: Users, color: 'green' },
+                     { label: 'Store Rating', val: '4.92', sub: 'Based on 124 reviews', icon: Star, color: 'yellow' }
+                   ].map((stat, i) => (
+                     <div key={i} className="bg-white border p-8 rounded-[40px] space-y-4 shadow-sm hover:shadow-md transition-all">
+                       <div className={`w-12 h-12 bg-${stat.color}-50 text-${stat.color}-600 rounded-2xl flex items-center justify-center`}><stat.icon size={24}/></div>
+                       <div>
+                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{stat.label}</p>
+                         <h3 className="text-2xl font-black text-slate-900">{stat.val}</h3>
+                         <p className="text-[10px] text-slate-500 mt-1">{stat.sub}</p>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+                 <div className="bg-slate-900 text-white p-12 rounded-[56px] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/20 blur-[100px] -translate-y-1/2 translate-x-1/2 rounded-full"></div>
+                    <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-8">
+                       <div className="space-y-4 max-w-md">
+                          <h2 className="text-4xl font-black leading-tight">Demand is spiking for <span className="text-indigo-400">Keyboards</span>.</h2>
+                          <p className="text-slate-400 text-sm">Nex has identified a 25% increase in searches for "Mechanical RGB" in your region. Consider running a flash sale to capture the traffic.</p>
+                          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl font-bold transition-all flex items-center gap-2">
+                             <TrendingUp size={18}/> Launch Optimized Campaign
+                          </button>
+                       </div>
+                       <div className="flex-1 max-w-sm w-full space-y-3">
+                          {[75, 42, 90, 60].map((h, i) => (
+                            <div key={i} className="flex items-center gap-4 group">
+                               <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden">
+                                  <div className="h-full bg-indigo-500 rounded-full group-hover:bg-indigo-400 transition-all" style={{width: `${h}%`}}></div>
+                               </div>
+                               <span className="text-[10px] font-mono text-slate-500 w-8">{h}%</span>
+                            </div>
+                          ))}
+                       </div>
+                    </div>
+                 </div>
+               </div>
+             )}
+
+             {sellerTab === 'orders' && (
+               <div className="bg-white border rounded-[48px] overflow-hidden shadow-sm animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="bg-slate-50 px-10 py-6 border-b flex justify-between items-center">
+                    <h3 className="font-black text-xs uppercase tracking-widest text-slate-500">Incoming Orders</h3>
+                    <div className="flex items-center gap-2 bg-white px-4 py-1.5 rounded-full border text-[10px] font-bold text-slate-600">
+                       <Clock size={12}/> Auto-refreshing every 60s
+                    </div>
+                  </div>
+                  <div className="divide-y">
+                    {orders.length === 0 ? (
+                      <div className="py-20 text-center space-y-3">
+                        <div className="w-16 h-16 bg-slate-100 rounded-full mx-auto flex items-center justify-center text-slate-400"><ClipboardList size={32}/></div>
+                        <p className="text-slate-400 italic">No orders to fulfill at the moment. Marketing Nex is on it.</p>
+                      </div>
+                    ) : (
+                      orders.map(o => (
+                        <div key={o.id} className="px-10 py-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:bg-slate-50/50 transition-colors">
+                           <div className="flex items-center gap-6">
+                              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center font-black">#{o.id.slice(0, 2).toUpperCase()}</div>
+                              <div className="space-y-1">
+                                 <h4 className="font-bold text-slate-900">Order from Guest Customer</h4>
+                                 <p className="text-xs text-slate-500 flex items-center gap-2"><MapPin size={10}/> {o.shipping_address}</p>
+                                 <p className="text-[10px] text-slate-400 font-mono">{new Date(o.date).toLocaleString()}</p>
+                              </div>
+                           </div>
+                           <div className="flex items-center gap-12 w-full md:w-auto">
+                              <div className="text-right hidden sm:block">
+                                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Revenue</p>
+                                 <p className="text-lg font-black text-slate-900">${o.total.toFixed(2)}</p>
+                              </div>
+                              <div className="flex items-center gap-3 bg-white p-1 rounded-2xl border shadow-sm flex-1 md:flex-none">
+                                 <select 
+                                   value={o.status}
+                                   onChange={(e) => actions.updateOrderStatus(o.id, e.target.value)}
+                                   className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest px-4 py-2 focus:ring-0 cursor-pointer"
+                                 >
+                                    {['Pending', 'Shipped', 'Delivered', 'Cancelled'].map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                 </select>
+                                 <div className="pr-3 text-indigo-600"><ChevronDown size={14}/></div>
+                              </div>
+                           </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+               </div>
+             )}
+
+             {sellerTab === 'inventory' && (
+               <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-2xl font-black">Live Inventory</h3>
+                    <button 
+                      onClick={() => {
+                        const name = prompt("Product Name:");
+                        const price = parseFloat(prompt("Price ($):") || "0");
+                        if (name && !isNaN(price)) actions.addProduct({ name, price, seller_id: state.user?.id });
+                      }}
+                      className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-600 transition-all"
+                    >
+                      <Plus size={18}/> List New Product
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {products.filter(p => p.seller_id === state.user?.id || p.seller_name === state.user?.name).map(p => (
+                      <div key={p.id} className="bg-white border rounded-[32px] p-4 space-y-4 group relative overflow-hidden">
+                         <div className="aspect-square rounded-2xl overflow-hidden bg-slate-50">
+                           <img src={p.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                         </div>
+                         <div className="px-1">
+                           <h4 className="font-bold text-slate-900 line-clamp-1">{p.name}</h4>
+                           <div className="flex justify-between items-center mt-2">
+                             <span className="text-xs font-black text-indigo-600">${p.price}</span>
+                             <span className="text-[10px] text-slate-400 font-bold uppercase">{p.category}</span>
+                           </div>
+                         </div>
+                         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex gap-2">
+                               <button className="bg-white p-3 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Edit size={16}/></button>
+                               <button className="bg-white p-3 rounded-xl hover:bg-red-500 hover:text-white transition-all"><Trash2 size={16}/></button>
+                            </div>
+                         </div>
+                      </div>
+                    ))}
+                  </div>
+               </div>
+             )}
            </div>
         )}
       </main>
