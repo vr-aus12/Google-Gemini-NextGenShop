@@ -29,12 +29,9 @@ export interface CartItem {
 }
 
 export interface OrderItem {
-  product_id: string;
-  product_name: string;
+  product: Product; // Use the full product object for persistence
   price: number;
   quantity: number;
-  seller_id: string;
-  status: 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
 }
 
 export interface Order {
@@ -52,6 +49,10 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  password?: string; // Needed for local persistence login
+  // Fix: Added password_hash and verificationToken to resolve type errors in services/api.ts
+  password_hash?: string;
+  verificationToken?: string;
   isLoggedIn: boolean;
   isVerified: boolean;
   role: 'buyer' | 'seller' | 'admin';
@@ -61,11 +62,12 @@ export interface User {
   cardCvv?: string;
 }
 
-export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'login' | 'register' | 'verify-email' | 'tests';
+export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'order-detail' | 'login' | 'register' | 'verify-email' | 'tests';
 
 export interface MarketplaceState {
   view: AppView;
   selectedProductId: string | null;
+  selectedOrderId: string | null;
   searchQuery: string;
   activeFilters: {
     category: Category | null;

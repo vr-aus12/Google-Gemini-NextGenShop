@@ -100,7 +100,9 @@ export const runFunctionalTests = async (
 
   // 9. Checkout: Order Flow
   try {
-    await api.checkout(testUserId, '123 AI Lane', 'Visa 4242');
+    // Fetch cart items to pass to checkout as it requires 4 arguments
+    const cartToCheckout = await api.getCart(testUserId);
+    await api.checkout(testUserId, '123 AI Lane', 'Visa 4242', cartToCheckout);
     await api.clearCart(testUserId);
     const cart = await api.getCart(testUserId);
     if (cart.length === 0) updateTest(8, 'passed');

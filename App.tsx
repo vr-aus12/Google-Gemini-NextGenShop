@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing, ClipboardCheck, Terminal, TrendingUp, Users, DollarSign, PackageOpen, ChevronDown } from 'lucide-react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing, ClipboardCheck, Terminal, TrendingUp, Users, DollarSign, PackageOpen, ChevronDown, Calendar, CreditCard as CardIcon, Save, AlertCircle, LayoutDashboard, ListPlus } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
@@ -15,15 +15,14 @@ const App: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [sellerTab, setSellerTab] = useState<'analytics' | 'orders' | 'inventory'>('analytics');
   
-  const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [showTestsPanel, setShowTestsPanel] = useState(false);
-  const [notification, setNotification] = useState<{ message: string; sub: string; icon: any } | null>(null);
+  const [notification, setNotification] = useState<{ message: string; sub: string; icon: any; type?: 'info' | 'error' | 'success' } | null>(null);
 
   const [state, setState] = useState<MarketplaceState>(() => {
     const savedUser = localStorage.getItem('nexshop_user');
     return {
       view: 'home',
       selectedProductId: null,
+      selectedOrderId: null,
       searchQuery: '',
       activeFilters: { category: null, minPrice: null, maxPrice: null },
       cart: [],
@@ -32,9 +31,28 @@ const App: React.FC = () => {
     };
   });
 
+  const showNotify = (message: string, sub: string, icon: any = BellRing, type: 'info' | 'error' | 'success' = 'info') => {
+    setNotification({ message, sub, icon, type });
+    if (type !== 'error') {
+        setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
   const refreshProducts = async () => {
     const fetched = await api.getProducts();
     if (fetched.length > 0) setProducts(fetched);
+  };
+
+  const refreshOrders = async () => {
+    if (state.user) {
+      if (state.view === 'seller-dashboard') {
+        const fetched = await api.getSellerOrders(state.user.id);
+        setOrders(fetched);
+      } else {
+        const myOrders = await api.getMyOrders(state.user.id);
+        setOrders(myOrders);
+      }
+    }
   };
 
   useEffect(() => {
@@ -45,16 +63,11 @@ const App: React.FC = () => {
   }, [state.user?.id]);
 
   useEffect(() => {
-    if (state.view === 'orders' && state.user) {
-      api.getMyOrders(state.user.id).then(setOrders);
-    } else if (state.view === 'seller-dashboard' && state.user) {
-      api.getSellerOrders(state.user.id).then(setOrders);
+    if (state.user && (state.view === 'orders' || state.view === 'order-detail' || state.view === 'seller-dashboard')) {
+      refreshOrders();
     }
     if (state.view === 'product-detail' && state.selectedProductId) {
       api.getReviews(state.selectedProductId).then(setReviews);
-    }
-    if (state.view === 'tests') {
-      handleRunTests();
     }
   }, [state.view, state.user, state.selectedProductId]);
 
@@ -84,12 +97,12 @@ const App: React.FC = () => {
     },
     addToCart: async (idOrName: string, qty: number = 1) => {
       if (!state.user) {
-        alert("Login is mandatory to add items to your cart!");
+        showNotify("Login Required", "Please log in to add items to your cart.", Lock, 'error');
         setState(prev => ({ ...prev, view: 'login' }));
         return;
       }
       if (!state.user.isVerified) {
-        alert("Please verify your email before shopping!");
+        showNotify("Verification Required", "Verify your email before shopping.", ShieldAlert, 'error');
         setState(prev => ({ ...prev, view: 'verify-email' }));
         return;
       }
@@ -98,10 +111,14 @@ const App: React.FC = () => {
       await api.addToCart(state.user.id, product.id, qty);
       const newCart = await api.getCart(state.user.id);
       setState(prev => ({ ...prev, cart: newCart }));
+      showNotify("Added to Cart", `${product.name} added.`, ShoppingCart, 'success');
     },
     viewProduct: (idOrName: string) => {
       const product = products.find(p => p.id === idOrName || p.name.toLowerCase() === idOrName.toLowerCase());
       if (product) setState(prev => ({ ...prev, view: 'product-detail', selectedProductId: product.id }));
+    },
+    viewOrder: (orderId: string) => {
+      setState(prev => ({ ...prev, view: 'order-detail', selectedOrderId: orderId }));
     },
     navigateTo: (view: AppView) => setState(prev => ({ ...prev, view })),
     updateProfile: async (p: Partial<User>) => {
@@ -110,12 +127,14 @@ const App: React.FC = () => {
         const updated = await api.getUser(state.user.id);
         setState(prev => ({ ...prev, user: updated }));
         localStorage.setItem('nexshop_user', JSON.stringify(updated));
+        showNotify("Profile Updated", "Your changes have been saved.", CheckCircle, 'success');
       }
     },
     postReview: async (productId: string, rating: number, comment: string) => {
       if (state.user) {
         await api.submitReview(productId, { user_id: state.user.id, user_name: state.user.name, rating, comment, date: new Date().toISOString() });
         api.getReviews(productId).then(setReviews);
+        showNotify("Review Posted", "Thank you for your feedback!", Star, 'success');
       }
     },
     updateOrderStatus: async (id: string, status: string) => {
@@ -132,13 +151,14 @@ const App: React.FC = () => {
         description: p.description || '',
         price: p.price || 0,
         category: (p.category as Category) || 'Electronics',
-        image: p.image || 'https://picsum.photos/seed/new/400/400',
+        image: p.image || `https://picsum.photos/seed/${Math.random()}/400/400`,
         rating: 5,
         specs: p.specs || [],
         seller_id: state.user?.id || 's1',
         seller_name: state.user?.name || 'Nex Seller'
       };
       setProducts(prev => [newProduct, ...prev]);
+      showNotify("Product Added", "Listing is now live.", Package, 'success');
     },
     compareProduct: (id: string) => {
       setState(prev => ({
@@ -149,34 +169,38 @@ const App: React.FC = () => {
     login: () => setState(prev => ({ ...prev, view: 'login' })),
     checkout: async () => {
       if (!state.user) {
-        alert("Login is mandatory to checkout!");
+        showNotify("Authentication Error", "Login is required to checkout.", Lock, 'error');
         setState(prev => ({ ...prev, view: 'login' }));
         return;
       }
       if (!state.user.isVerified) {
-        alert("Please verify your email before checkout!");
+        showNotify("Verification Required", "Verify your email to continue checkout.", ShieldCheck, 'error');
         setState(prev => ({ ...prev, view: 'verify-email' }));
         return;
       }
       if (state.cart.length === 0) {
-        alert("Your cart is empty!");
+        showNotify("Empty Cart", "Add items to your cart before checking out.", ShoppingCart, 'error');
         return;
       }
       if (!state.user?.address || !state.user?.cardNumber) {
-        alert("Please update your profile with address and payment details first!");
+        showNotify("Incomplete Profile", "Shipping address and card number are required.", MapPin, 'error');
         setState(prev => ({ ...prev, view: 'profile' }));
         return;
       }
       setIsProcessingPayment(true);
-      await api.checkout(state.user.id, state.user.address, 'Visa **** ' + state.user.cardNumber.slice(-4));
-      await api.clearCart(state.user.id);
-      setState(prev => ({ ...prev, view: 'checkout-success', cart: [] }));
-      setIsProcessingPayment(false);
-    }
-  };
-
-  const handleRunTests = () => {
-    runFunctionalTests(setTestResults, actions);
+      try {
+        const paymentMethod = 'Visa **** ' + state.user.cardNumber.slice(-4);
+        await api.checkout(state.user.id, state.user.address, paymentMethod, state.cart);
+        await api.clearCart(state.user.id);
+        await refreshOrders();
+        setState(prev => ({ ...prev, view: 'checkout-success', cart: [] }));
+      } catch (err) {
+        showNotify("Checkout Failed", (err as Error).message, AlertCircle, 'error');
+      } finally {
+        setIsProcessingPayment(false);
+      }
+    },
+    setSellerTab: (tab: 'analytics' | 'orders' | 'inventory') => setSellerTab(tab)
   };
 
   const handleEmailLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -189,8 +213,9 @@ const App: React.FC = () => {
       const user = await api.login({ email, password });
       setState(prev => ({ ...prev, user, view: 'home' }));
       localStorage.setItem('nexshop_user', JSON.stringify(user));
+      showNotify("Welcome Back", `Logged in as ${user.name}`, UserIconSmall, 'success');
     } catch (err: any) {
-      alert("Login Error: " + err.message);
+      showNotify("Login Failed", err.message, ShieldAlert, 'error');
     } finally {
       setIsAuthenticating(false);
     }
@@ -205,14 +230,10 @@ const App: React.FC = () => {
     setIsAuthenticating(true);
     try {
       const res = await api.register({ email, password, name });
-      setNotification({
-        message: "New Simulated Email",
-        sub: `Verification Token: ${res.token}. Use this code to verify your account.`,
-        icon: Mail
-      });
+      showNotify("Verification Sent", `Code: ${res.token}. Please enter it to verify.`, Mail, 'info');
       setState(prev => ({ ...prev, view: 'verify-email' }));
     } catch (err: any) {
-      alert("Registration failed: " + err.message);
+      showNotify("Registration Error", err.message, ShieldAlert, 'error');
     } finally {
       setIsAuthenticating(false);
     }
@@ -224,83 +245,42 @@ const App: React.FC = () => {
     const token = formData.get('token') as string;
     try {
       await api.verifyEmail(token);
-      alert("Verification successful! Please login.");
-      setNotification(null);
+      showNotify("Success!", "Account verified. You can now log in.", CheckCircle, 'success');
       setState(prev => ({ ...prev, view: 'login' }));
     } catch (err: any) {
-      alert("Verification failed: " + err.message);
+      showNotify("Verification Failed", err.message, ShieldAlert, 'error');
     }
   };
 
-  const handleGoogleLogin = () => {
-    setIsAuthenticating(true);
-    setTimeout(async () => {
-      const user = await api.googleAuth({ 
-        token: 'simulated_google_token',
-        email: 'user@gmail.com',
-        name: 'Google User'
-      });
-      setState(prev => ({ ...prev, user, view: 'home' }));
-      localStorage.setItem('nexshop_user', JSON.stringify(user));
-      setIsAuthenticating(false);
-    }, 1200);
-  };
-
   const selectedProduct = products.find(p => p.id === state.selectedProductId);
+  const selectedOrder = orders.find(o => o.id === state.selectedOrderId);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Mock Simulated Inbox Notification */}
       {notification && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-w-sm bg-slate-900 text-white p-5 rounded-[24px] shadow-2xl flex items-start gap-4 animate-in slide-in-from-top-12 duration-500">
-          <div className="bg-indigo-500 p-2.5 rounded-xl"><notification.icon size={20}/></div>
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-w-sm p-5 rounded-[24px] shadow-2xl flex items-start gap-4 animate-in slide-in-from-top-12 duration-500 ${
+            notification.type === 'error' ? 'bg-red-50 text-red-900 border border-red-200' : 
+            notification.type === 'success' ? 'bg-green-50 text-green-900 border border-green-200' : 'bg-slate-900 text-white'
+        }`}>
+          <div className={`p-2.5 rounded-xl ${notification.type === 'error' ? 'bg-red-500 text-white' : notification.type === 'success' ? 'bg-green-500 text-white' : 'bg-indigo-500 text-white'}`}>
+              <notification.icon size={20}/>
+          </div>
           <div className="flex-1 space-y-1">
             <h4 className="font-bold text-sm">{notification.message}</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">{notification.sub}</p>
+            <p className="text-xs opacity-80 leading-relaxed">{notification.sub}</p>
           </div>
-          <button onClick={() => setNotification(null)} className="p-1 hover:bg-slate-800 rounded-lg"><X size={16}/></button>
+          <button onClick={() => setNotification(null)} className="p-1 hover:bg-black/5 rounded-lg"><X size={16}/></button>
         </div>
       )}
 
-      {/* Background Overlay for Loading State */}
       {(isAuthenticating || isProcessingPayment) && (
         <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-300">
           <div className="bg-white p-8 rounded-[32px] shadow-2xl flex flex-col items-center gap-4 text-center max-w-xs">
             <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
             <div className="space-y-1">
               <h3 className="font-bold text-lg">{isAuthenticating ? 'Authenticating...' : 'Processing Payment...'}</h3>
-              <p className="text-sm text-slate-500">Securing your premium tech workspace.</p>
+              <p className="text-sm text-slate-500">Wait a moment please.</p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Diagnostics Side Panel */}
-      {showTestsPanel && (
-        <div className="fixed top-20 right-8 z-[60] w-80 bg-white border shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-right duration-300">
-          <div className="bg-slate-900 p-4 text-white flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={14} className="text-indigo-400"/> System Status</span>
-            <button onClick={() => setShowTestsPanel(false)} className="hover:text-red-400 p-1"><X size={16}/></button>
-          </div>
-          <div className="p-4 space-y-3 max-h-[450px] overflow-y-auto scrollbar-hide">
-            {testResults.map((tr, i) => (
-              <div key={i} className="flex items-center justify-between text-[11px] border-b border-slate-50 pb-2 last:border-0">
-                <div className="flex flex-col">
-                  <span className="text-slate-600 font-bold">{tr.name}</span>
-                  {tr.error && <span className="text-[9px] text-red-400 font-medium truncate max-w-[160px]">{tr.error}</span>}
-                </div>
-                <span className={`font-black uppercase tracking-tighter px-2 py-0.5 rounded ${
-                  tr.status === 'passed' ? 'text-green-600 bg-green-50' : 
-                  tr.status === 'failed' ? 'text-red-600 bg-red-50' : 'text-indigo-600 bg-indigo-50 animate-pulse'
-                }`}>{tr.status}</span>
-              </div>
-            ))}
-          </div>
-          <div className="p-3 bg-slate-50 border-t flex flex-col gap-2">
-            <button onClick={() => { actions.navigateTo('tests'); setShowTestsPanel(false); }} className="text-indigo-600 text-[10px] font-black uppercase text-center hover:underline">View Full Report</button>
-            <button onClick={handleRunTests} className="w-full bg-indigo-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-200">
-              <RefreshCcw size={14} /> Re-run Tests
-            </button>
           </div>
         </div>
       )}
@@ -324,30 +304,28 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          {state.user?.role === 'buyer' && (
-            <button 
-              onClick={() => actions.updateProfile({ role: 'seller' })}
-              className="hidden lg:flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors bg-white border px-4 py-2 rounded-full shadow-sm"
-            >
+          {state.user ? (
+             <>
+               {state.user.role === 'buyer' ? (
+                 <button onClick={() => actions.updateProfile({ role: 'seller' })} className="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white border px-4 py-2 rounded-full hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm">
+                   <Store size={14}/> Start Selling
+                 </button>
+               ) : (
+                 <button onClick={() => actions.navigateTo('seller-dashboard')} className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-sm transition-all ${state.view === 'seller-dashboard' ? 'bg-slate-900 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>
+                    <BarChart3 size={14}/> Console
+                 </button>
+               )}
+             </>
+          ) : (
+            <button onClick={() => actions.navigateTo('login')} className="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white border px-4 py-2 rounded-full hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm">
               <Store size={14}/> Become a Seller
             </button>
           )}
-          
-          {state.user?.role === 'seller' && (
-            <button 
-              onClick={() => actions.navigateTo('seller-dashboard')}
-              className={`hidden lg:flex items-center gap-2 text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-sm transition-all ${state.view === 'seller-dashboard' ? 'bg-slate-900 text-white' : 'bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50'}`}
-            >
-              <BarChart3 size={14}/> Dashboard
-            </button>
-          )}
 
-          <button onClick={() => actions.navigateTo('tests')} className={`p-2.5 transition-colors ${state.view === 'tests' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`} title="Test Center">
+          <button onClick={() => actions.navigateTo('orders')} className={`p-2.5 transition-colors ${state.view === 'orders' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`} title="Orders">
             <ClipboardCheck className="w-5 h-5" />
           </button>
-          <button onClick={() => setShowTestsPanel(!showTestsPanel)} className="p-2.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Quick Diagnostics">
-            <ShieldCheck className="w-5 h-5" />
-          </button>
+          
           <button className="relative p-2.5 text-slate-600 hover:bg-slate-100 rounded-full" onClick={() => actions.navigateTo('cart')}>
             <ShoppingCart className="w-5 h-5" />
             {state.cart.length > 0 && <span className="absolute top-1 right-1 bg-indigo-600 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">{state.cart.length}</span>}
@@ -355,12 +333,11 @@ const App: React.FC = () => {
           
           {state.user ? (
             <div className="flex items-center gap-2 pl-2 border-l">
-              <button onClick={() => actions.navigateTo('profile')} className="flex items-center gap-2 bg-white border px-3 py-1.5 rounded-full shadow-sm hover:border-indigo-200 transition-colors">
+              <button onClick={() => actions.navigateTo('profile')} className={`flex items-center gap-2 bg-white border px-3 py-1.5 rounded-full shadow-sm hover:border-indigo-200 transition-colors ${state.view === 'profile' ? 'border-indigo-500' : ''}`}>
                 <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-[10px]">{state.user.name.charAt(0)}</div>
-                <span className="text-xs font-semibold">{state.user.name.split(' ')[0]}</span>
-                {!state.user.isVerified && <span className="w-2 h-2 bg-red-500 rounded-full" title="Not Verified"></span>}
+                <span className="text-xs font-semibold hidden sm:inline">{state.user.name.split(' ')[0]}</span>
               </button>
-              <button onClick={() => { localStorage.removeItem('nexshop_user'); setState(prev => ({ ...prev, user: null })); }} className="p-2 text-slate-400 hover:text-red-500">
+              <button onClick={() => { localStorage.removeItem('nexshop_user'); setState(prev => ({ ...prev, user: null, view: 'home' })); }} className="p-2 text-slate-400 hover:text-red-500">
                 <LogOut size={16} />
               </button>
             </div>
@@ -371,31 +348,150 @@ const App: React.FC = () => {
       </nav>
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+        {state.view === 'seller-dashboard' && state.user && (
+          <div className="space-y-10 animate-in fade-in duration-500">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <div className="space-y-1">
+                <h1 className="text-4xl font-black tracking-tight">Seller Console</h1>
+                <p className="text-slate-500">Welcome back, {state.user.name}. Manage your store presence.</p>
+              </div>
+              <div className="flex bg-slate-200/50 p-1.5 rounded-2xl gap-1">
+                 {(['analytics', 'orders', 'inventory'] as const).map(tab => (
+                   <button 
+                    key={tab}
+                    onClick={() => setSellerTab(tab)}
+                    className={`px-6 py-2 rounded-xl text-xs font-bold capitalize transition-all ${sellerTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+                   >
+                     {tab}
+                   </button>
+                 ))}
+              </div>
+            </div>
+
+            {sellerTab === 'analytics' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-4">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="text-[10px] font-black uppercase tracking-widest">Total Sales</span>
+                    <TrendingUp size={16}/>
+                  </div>
+                  <div className="text-4xl font-black text-slate-900">$12,482.00</div>
+                  <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-indigo-600 w-3/4"></div>
+                  </div>
+                  <p className="text-[10px] text-green-600 font-bold">+12% from last month</p>
+                </div>
+                <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-4">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="text-[10px] font-black uppercase tracking-widest">Active Orders</span>
+                    <PackageOpen size={16}/>
+                  </div>
+                  <div className="text-4xl font-black text-slate-900">{orders.length}</div>
+                  <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-indigo-600 w-1/2"></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold">Fulfillment rate: 98%</p>
+                </div>
+                <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-4">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="text-[10px] font-black uppercase tracking-widest">Store Rating</span>
+                    <Star size={16}/>
+                  </div>
+                  <div className="text-4xl font-black text-slate-900">4.9/5</div>
+                  <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-yellow-400 w-full"></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold">Based on 142 reviews</p>
+                </div>
+              </div>
+            )}
+
+            {sellerTab === 'orders' && (
+              <div className="bg-white border rounded-[40px] overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 border-b">
+                      <tr>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Order ID</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Customer</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Amount</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Status</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {orders.map(o => (
+                        <tr key={o.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-8 py-6 font-mono text-xs">{o.id}</td>
+                          <td className="px-8 py-6 font-bold text-sm">Customer ID: {o.user_id.slice(0, 8)}...</td>
+                          <td className="px-8 py-6 font-bold text-indigo-600">${o.total.toFixed(2)}</td>
+                          <td className="px-8 py-6">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                              o.status === 'Delivered' ? 'bg-green-50 text-green-600 border-green-100' : 
+                              o.status === 'Shipped' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-orange-50 text-orange-600 border-orange-100'
+                            }`}>
+                              {o.status}
+                            </span>
+                          </td>
+                          <td className="px-8 py-6 text-right space-x-2">
+                             <button onClick={() => actions.updateOrderStatus(o.id, 'Shipped')} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl transition-all"><Truck size={16}/></button>
+                             <button onClick={() => actions.updateOrderStatus(o.id, 'Delivered')} className="p-2 text-slate-400 hover:text-green-600 hover:bg-white rounded-xl transition-all"><CheckCircle size={16}/></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {orders.length === 0 && <div className="p-20 text-center text-slate-400 italic">No incoming orders yet.</div>}
+                </div>
+              </div>
+            )}
+
+            {sellerTab === 'inventory' && (
+              <div className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-black">Your Listings</h3>
+                  <button onClick={() => {
+                    const name = prompt("Product Name?");
+                    const price = parseFloat(prompt("Price?") || "0");
+                    const category = prompt("Category? (Electronics, Gaming, Audio, Workstation, Accessories)") as any;
+                    if (name && price) actions.addProduct({ name, price, category });
+                  }} className="bg-indigo-600 text-white px-6 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 hover:scale-105 transition-all shadow-lg shadow-indigo-100">
+                    <ListPlus size={16}/> Add New Product
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {products.filter(p => p.seller_id === state.user?.id).map(p => (
+                    <div key={p.id} className="bg-white border p-6 rounded-[32px] flex items-center gap-6 group">
+                       <img src={p.image} className="w-20 h-20 rounded-2xl object-cover" />
+                       <div className="flex-1">
+                         <h4 className="font-bold text-sm">{p.name}</h4>
+                         <p className="text-xs text-slate-400">${p.price}</p>
+                       </div>
+                       <button className="p-2 text-slate-300 hover:text-red-500 rounded-xl hover:bg-red-50 transition-all"><Trash2 size={16}/></button>
+                    </div>
+                  ))}
+                  {products.filter(p => p.seller_id === state.user?.id).length === 0 && (
+                    <div className="col-span-full py-20 border-2 border-dashed rounded-[40px] text-center text-slate-400">
+                      You haven't listed any products yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {state.view === 'login' && (
           <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center space-y-2">
               <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-3xl mx-auto flex items-center justify-center"><Lock size={32}/></div>
               <h1 className="text-3xl font-black">Welcome Back</h1>
-              <p className="text-slate-500 text-sm">Secure access to your curated tech gear.</p>
             </div>
             <form onSubmit={handleEmailLogin} className="space-y-4">
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
-                <input name="email" type="email" placeholder="Email Address" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
-                <input name="password" type="password" placeholder="Password" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
+              <input name="email" type="email" placeholder="Email Address" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              <input name="password" type="password" placeholder="Password" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-sm focus:ring-2 focus:ring-indigo-500/20" />
               <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Sign In</button>
             </form>
-            <div className="relative py-4 text-center">
-              <div className="absolute inset-0 flex items-center"><div className="w-full border-t"></div></div>
-              <span className="relative px-4 bg-white text-slate-400 text-xs font-bold uppercase">or</span>
-            </div>
-            <button onClick={handleGoogleLogin} className="w-full bg-white border-2 border-slate-100 text-slate-700 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-slate-50 transition-colors">
-              <img src="https://www.google.com/favicon.ico" className="w-4 h-4" /> Continue with Google
-            </button>
             <p className="text-center text-sm text-slate-500">New here? <button onClick={() => actions.navigateTo('register')} className="text-indigo-600 font-bold hover:underline">Create Account</button></p>
           </div>
         )}
@@ -404,42 +500,28 @@ const App: React.FC = () => {
           <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
              <div className="text-center space-y-2">
               <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-3xl mx-auto flex items-center justify-center"><Plus size={32}/></div>
-              <h1 className="text-3xl font-black">Create Account</h1>
-              <p className="text-slate-500 text-sm">Join the world's first AI-powered marketplace.</p>
+              <h1 className="text-3xl font-black">Join NexShop</h1>
             </div>
             <form onSubmit={handleEmailRegister} className="space-y-4">
-              <div className="relative">
-                <UserIconSmall className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
-                <input name="name" type="text" placeholder="Full Name" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
-                <input name="email" type="email" placeholder="Email Address" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
-                <input name="password" type="password" placeholder="Password" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
-              </div>
+              <input name="name" type="text" placeholder="Full Name" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              <input name="email" type="email" placeholder="Email Address" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              <input name="password" type="password" placeholder="Password" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-sm focus:ring-2 focus:ring-indigo-500/20" />
               <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Register</button>
             </form>
-            <p className="text-center text-sm text-slate-500">Already have an account? <button onClick={() => actions.navigateTo('login')} className="text-indigo-600 font-bold hover:underline">Sign In</button></p>
           </div>
         )}
 
         {state.view === 'verify-email' && (
-          <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in duration-500">
              <div className="text-center space-y-2">
               <div className="w-16 h-16 bg-green-100 text-green-600 rounded-3xl mx-auto flex items-center justify-center"><CheckCircle size={32}/></div>
               <h1 className="text-3xl font-black">Verify Email</h1>
-              <p className="text-slate-500 text-sm">Enter the code sent to your simulated inbox above.</p>
+              <p className="text-slate-500 text-sm">Enter the code from your notification.</p>
             </div>
             <form onSubmit={handleVerify} className="space-y-4">
               <input name="token" type="text" placeholder="Enter Token" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-center text-lg font-mono tracking-widest focus:ring-2 focus:ring-indigo-500/20" />
-              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Verify Account</button>
+              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Verify</button>
             </form>
-            <button onClick={() => actions.navigateTo('login')} className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-indigo-600 transition-colors">
-              <ArrowLeft size={14}/> Back to Login
-            </button>
           </div>
         )}
 
@@ -448,12 +530,9 @@ const App: React.FC = () => {
             <div className="relative h-96 rounded-[40px] overflow-hidden group">
               <img src="https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=2070&auto=format&fit=crop" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-r from-slate-900/80 to-transparent flex flex-col justify-center p-12">
-                <div className="bg-indigo-600/20 backdrop-blur-md self-start px-4 py-1.5 rounded-full text-indigo-400 text-xs font-bold uppercase tracking-widest mb-4">New Arrivals 2024</div>
-                <h1 className="text-6xl font-black text-white max-w-xl leading-tight mb-6">Future Tech. <br/><span className="text-indigo-500">Curated by AI.</span></h1>
-                <p className="text-slate-300 text-lg max-w-md mb-8">Premium electronics delivered with the world's first AI shopping assistant.</p>
-                <div className="flex gap-4">
-                  <button onClick={() => actions.navigateTo('search')} className="bg-white text-slate-900 px-8 py-4 rounded-2xl font-bold hover:scale-105 transition-transform">Shop Collections</button>
-                </div>
+                <h1 className="text-6xl font-black text-white max-w-xl leading-tight mb-6">Future Tech. <span className="text-indigo-500">NexShop.</span></h1>
+                <p className="text-slate-300 text-lg max-w-md mb-8">Secure your workspace with next-gen retail technology.</p>
+                <button onClick={() => actions.navigateTo('search')} className="bg-white text-slate-900 self-start px-8 py-4 rounded-2xl font-bold hover:scale-105 transition-transform">Explore Catalog</button>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -462,16 +541,147 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {state.view === 'search' && (
-          <div className="space-y-8">
-            <div className="flex justify-between items-center">
-              <h1 className="text-3xl font-bold">Search Results</h1>
-              <p className="text-slate-500">{filteredProducts.length} items found</p>
+        {state.view === 'profile' && state.user && (
+          <div className="max-w-2xl mx-auto space-y-10 animate-in fade-in duration-500">
+             <div className="space-y-2">
+                <h1 className="text-4xl font-black">Your Profile</h1>
+                <p className="text-slate-500">Complete your profile to enable checkout.</p>
+             </div>
+
+             <form className="space-y-6" onSubmit={(e) => {
+               e.preventDefault();
+               const formData = new FormData(e.currentTarget);
+               actions.updateProfile({
+                 name: formData.get('name') as string,
+                 address: formData.get('address') as string,
+                 cardNumber: formData.get('cardNumber') as string
+               });
+             }}>
+               <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-6">
+                 <div className="grid grid-cols-1 gap-4">
+                    <div>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Full Name</label>
+                       <input name="name" defaultValue={state.user.name} required className="w-full bg-slate-100 border-none rounded-2xl px-6 py-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Shipping Address</label>
+                       <textarea name="address" rows={3} defaultValue={state.user.address} placeholder="Enter full shipping details..." required className="w-full bg-slate-100 border-none rounded-2xl px-6 py-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Payment Card Number</label>
+                       <input name="cardNumber" maxLength={16} defaultValue={state.user.cardNumber} placeholder="1234567812345678" required className="w-full bg-slate-100 border-none rounded-2xl px-6 py-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+                    </div>
+                 </div>
+               </div>
+               <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-3xl font-bold text-lg hover:bg-indigo-600 transition-all flex items-center justify-center gap-2 shadow-lg">
+                 <Save size={20}/> Save Changes
+               </button>
+             </form>
+          </div>
+        )}
+
+        {state.view === 'orders' && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+            <h1 className="text-4xl font-black">My Orders</h1>
+            {orders.length === 0 ? <p className="text-slate-400 text-center py-10 italic">Your order history is empty.</p> : (
+              <div className="grid grid-cols-1 gap-4">
+                {orders.map(o => (
+                  <div 
+                    key={o.id} 
+                    onClick={() => actions.viewOrder(o.id)}
+                    className="bg-white p-6 rounded-[32px] border hover:border-indigo-500 transition-all cursor-pointer flex justify-between items-center group"
+                  >
+                    <div className="flex items-center gap-6">
+                      <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-900 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                        <Package size={20}/>
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900">Order #{o.id}</h4>
+                        <p className="text-xs text-slate-400">{new Date(o.date).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-lg">${o.total.toFixed(2)}</div>
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg">{o.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {state.view === 'order-detail' && selectedOrder && (
+          <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in duration-500">
+            <button onClick={() => actions.navigateTo('orders')} className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 font-bold">
+              <ArrowLeft size={16}/> Back to History
+            </button>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+               <div className="space-y-2">
+                 <h1 className="text-4xl font-black tracking-tight">Order Details</h1>
+                 <p className="text-slate-500 flex items-center gap-2"><Calendar size={14}/> ID: {selectedOrder.id} • {new Date(selectedOrder.date).toLocaleString()}</p>
+               </div>
+               <div className="px-4 py-2 bg-green-50 text-green-600 rounded-xl font-bold text-xs uppercase tracking-widest border border-green-100">
+                 {selectedOrder.status}
+               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {filteredProducts.map(p => <ProductCard key={p.id} product={p} onClick={actions.viewProduct} onAdd={actions.addToCart} onCompare={actions.compareProduct} />)}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="md:col-span-2 space-y-4">
+                 <div className="bg-white border rounded-[32px] overflow-hidden shadow-sm">
+                   <div className="bg-slate-50 px-8 py-4 border-b">
+                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Items Ordered</h3>
+                   </div>
+                   <div className="divide-y">
+                     {selectedOrder.items.map((item, idx) => (
+                       <div key={idx} className="px-8 py-6 flex items-center gap-6">
+                         <img src={item.product.image} className="w-16 h-16 rounded-xl object-cover" />
+                         <div className="flex-1">
+                           <h4 className="font-bold">{item.product.name}</h4>
+                           <p className="text-xs text-slate-400">Sold by {item.product.seller_name}</p>
+                         </div>
+                         <div className="text-right">
+                           <div className="font-bold text-indigo-600">${item.price.toFixed(2)}</div>
+                           <div className="text-xs text-slate-400">Qty: {item.quantity}</div>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                   <div className="bg-slate-50 px-8 py-6 border-t flex justify-between items-center">
+                     <span className="font-bold text-slate-500 uppercase text-xs tracking-widest">Grand Total</span>
+                     <span className="text-2xl font-black text-indigo-600">${selectedOrder.total.toFixed(2)}</span>
+                   </div>
+                 </div>
+              </div>
+
+              <div className="space-y-6">
+                 <div className="bg-white border rounded-[32px] p-6 space-y-4 shadow-sm">
+                    <h3 className="font-bold flex items-center gap-2 text-slate-900"><MapPin size={18} className="text-indigo-600"/> Delivery To</h3>
+                    <p className="text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">{selectedOrder.shipping_address}</p>
+                 </div>
+                 <div className="bg-white border rounded-[32px] p-6 space-y-4 shadow-sm">
+                    <h3 className="font-bold flex items-center gap-2 text-slate-900"><CardIcon size={18} className="text-indigo-600"/> Payment Method</h3>
+                    <p className="text-sm text-slate-500 leading-relaxed">{selectedOrder.payment_method}</p>
+                 </div>
+              </div>
             </div>
           </div>
+        )}
+
+        {state.view === 'checkout-success' && (
+           <div className="max-w-xl mx-auto py-20 text-center space-y-8 animate-in zoom-in-95 duration-500">
+             <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full mx-auto flex items-center justify-center">
+               <CheckCircle size={48} />
+             </div>
+             <div className="space-y-4">
+               <h1 className="text-4xl font-black">Payment Confirmed</h1>
+               <p className="text-slate-500">Order recorded. The seller is preparing your premium tech for dispatch.</p>
+             </div>
+             <div className="flex gap-4 justify-center">
+               <button onClick={() => actions.navigateTo('orders')} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold hover:scale-105 transition-transform">View Order History</button>
+               <button onClick={() => actions.navigateTo('home')} className="bg-slate-100 text-slate-900 px-8 py-3 rounded-2xl font-bold hover:bg-slate-200 transition-all">Go Home</button>
+             </div>
+           </div>
         )}
 
         {state.view === 'product-detail' && selectedProduct && (
@@ -493,9 +703,9 @@ const App: React.FC = () => {
         )}
 
         {state.view === 'cart' && (
-           <div className="max-w-3xl mx-auto space-y-8">
-             <h1 className="text-3xl font-bold">Your Cart</h1>
-             {state.cart.length === 0 ? <p className="text-slate-400 text-center py-10 italic">Empty cart. Start adding premium tech to see it here.</p> : (
+           <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in duration-300">
+             <h1 className="text-3xl font-bold">Shopping Cart</h1>
+             {state.cart.length === 0 ? <p className="text-slate-400 text-center py-10 italic">Empty cart. Browse our premium catalog to add items.</p> : (
                <div className="bg-white border rounded-[40px] p-8 space-y-6 shadow-sm">
                  {state.cart.map(item => (
                    <div key={item.product.id} className="flex justify-between items-center border-b pb-4">
@@ -503,317 +713,16 @@ const App: React.FC = () => {
                        <img src={item.product.image} className="w-16 h-16 rounded-xl object-cover" />
                        <div className="font-bold">{item.product.name} (x{item.quantity})</div>
                      </div>
-                     <div className="font-bold">${(item.product.price * item.quantity).toFixed(2)}</div>
+                     <div className="font-bold text-indigo-600">${(item.product.price * item.quantity).toFixed(2)}</div>
                    </div>
                  ))}
-                 <button onClick={actions.checkout} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold">Checkout</button>
-               </div>
-             )}
-           </div>
-        )}
-
-        {state.view === 'checkout-success' && (
-           <div className="max-w-xl mx-auto py-20 text-center space-y-8 animate-in zoom-in-95 duration-500">
-             <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full mx-auto flex items-center justify-center">
-               <CheckCircle size={48} />
-             </div>
-             <div className="space-y-4">
-               <h1 className="text-4xl font-black">Order Placed!</h1>
-               <p className="text-slate-500">Your curated tech gear is on its way. Sellers have been notified and Nex is tracking your delivery.</p>
-             </div>
-             <div className="flex gap-4 justify-center">
-               <button onClick={() => actions.navigateTo('orders')} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold">Track Order</button>
-               <button onClick={() => actions.navigateTo('home')} className="bg-slate-100 text-slate-900 px-8 py-3 rounded-2xl font-bold">Back Home</button>
-             </div>
-           </div>
-        )}
-
-        {state.view === 'orders' && (
-           <div className="max-w-4xl mx-auto space-y-8">
-            <h1 className="text-4xl font-black">My Orders</h1>
-            {orders.length === 0 ? <p className="text-slate-400 text-center py-10">No orders found yet.</p> : (
-              <div className="space-y-4">
-                {orders.map(o => (
-                  <div key={o.id} className="bg-white p-6 rounded-3xl border shadow-sm">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-mono text-xs text-slate-400">#{o.id.toUpperCase()}</span>
-                      <span className="text-xs font-bold bg-blue-100 text-blue-600 px-3 py-1 rounded-full">{o.status}</span>
-                    </div>
-                    <div className="flex justify-between font-bold">
-                       <span>{o.items.length} items</span>
-                       <span>${o.total.toFixed(2)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-           </div>
-        )}
-
-        {state.view === 'profile' && state.user && (
-           <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-500">
-             <h1 className="text-4xl font-black">Your Profile</h1>
-             <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-6">
-                <div className="flex items-center gap-4">
-                   <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center text-white text-3xl font-black">{state.user.name.charAt(0)}</div>
-                   <div>
-                      <h2 className="text-xl font-bold">{state.user.name}</h2>
-                      <p className="text-slate-400">{state.user.email}</p>
-                      <div className="mt-1 flex gap-2">
-                        <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-black uppercase tracking-widest text-slate-500">{state.user.role}</span>
-                        {state.user.isVerified && <span className="px-2 py-0.5 bg-green-50 rounded text-[10px] font-black uppercase tracking-widest text-green-600 flex items-center gap-1"><CheckCircle size={8}/> Verified</span>}
-                      </div>
-                   </div>
-                </div>
-                <div className="pt-6 border-t space-y-4">
-                   <div>
-                      <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Shipping Address</label>
-                      <textarea 
-                        defaultValue={state.user.address} 
-                        onChange={(e) => actions.updateProfile({ address: e.target.value })}
-                        className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" 
-                        placeholder="Update your address..."
-                      />
-                   </div>
-                   <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Card Number</label>
-                        <input 
-                          type="text" 
-                          defaultValue={state.user.cardNumber}
-                          onChange={(e) => actions.updateProfile({ cardNumber: e.target.value })}
-                          className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" 
-                          placeholder="**** **** **** 1234"
-                        />
-                      </div>
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Expiry</label>
-                          <input type="text" className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" placeholder="MM/YY" />
-                        </div>
-                        <div className="w-20">
-                          <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">CVV</label>
-                          <input type="text" className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" placeholder="***" />
-                        </div>
-                      </div>
-                   </div>
-                </div>
-             </div>
-           </div>
-        )}
-
-        {state.view === 'tests' && (
-           <div className="max-w-5xl mx-auto space-y-12 animate-in fade-in duration-700 py-10">
-             {/* Test results HTML report implementation... */}
-             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b pb-8">
-               <div className="space-y-3">
-                 <div className="flex items-center gap-3">
-                   <div className="bg-slate-900 text-white p-2 rounded-xl"><Terminal size={24}/></div>
-                   <h1 className="text-5xl font-black tracking-tighter">Test Center</h1>
+                 <div className="flex justify-between items-center py-4">
+                   <span className="font-bold text-slate-500 uppercase tracking-widest text-xs">Grand Total</span>
+                   <span className="text-2xl font-black text-slate-900">${state.cart.reduce((a,c) => a + (c.product.price * c.quantity), 0).toFixed(2)}</span>
                  </div>
-                 <p className="text-slate-500 max-w-md">Comprehensive HTML audit report for NexShop's functional services and API integrity.</p>
-               </div>
-               <div className="flex items-center gap-4">
-                 <button onClick={handleRunTests} className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-800 transition-all shadow-xl shadow-slate-200">
-                   <RefreshCcw size={18} /> Re-run Suite
+                 <button onClick={actions.checkout} className="w-full bg-indigo-600 text-white py-5 rounded-3xl font-bold text-lg hover:scale-105 transition-all shadow-xl shadow-indigo-100">
+                    Proceed to Checkout
                  </button>
-               </div>
-             </div>
-             {/* ... (Existing Test Center Content) */}
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-               <div className="bg-white border-2 border-slate-100 p-8 rounded-[40px] space-y-2">
-                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Status</p>
-                 <div className="flex items-center gap-3">
-                   <div className={`w-3 h-3 rounded-full ${testResults.every(t => t.status === 'passed') ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                   <h2 className="text-2xl font-bold">{testResults.every(t => t.status === 'passed') ? 'All Systems Go' : 'Issues Detected'}</h2>
-                 </div>
-               </div>
-               <div className="bg-white border-2 border-slate-100 p-8 rounded-[40px] space-y-2">
-                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Integrity</p>
-                 <h2 className="text-3xl font-black">{Math.round((testResults.filter(t => t.status === 'passed').length / (testResults.length || 1)) * 100)}% <span className="text-sm text-slate-400 font-medium">Compliance</span></h2>
-               </div>
-               <div className="bg-white border-2 border-slate-100 p-8 rounded-[40px] space-y-2">
-                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Environment</p>
-                 <h2 className="text-2xl font-bold flex items-center gap-2"><div className="w-5 h-5 bg-indigo-100 text-indigo-600 rounded flex items-center justify-center text-[10px]">P</div> Production</h2>
-               </div>
-             </div>
-             <div className="bg-white border border-slate-200 rounded-[48px] overflow-hidden shadow-sm">
-                <div className="divide-y">
-                  {testResults.map((tr, i) => (
-                    <div key={i} className="px-8 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-mono text-slate-300">0{i+1}</span>
-                          <h4 className="font-bold text-slate-900">{tr.name}</h4>
-                        </div>
-                        {tr.error && <p className="text-xs text-red-500 font-mono mt-1">{tr.error}</p>}
-                      </div>
-                      <span className={`text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl ${tr.status === 'passed' ? 'text-green-600 bg-green-50' : tr.status === 'failed' ? 'text-red-600 bg-red-50' : 'text-indigo-400 bg-indigo-50'}`}>{tr.status}</span>
-                    </div>
-                  ))}
-                </div>
-             </div>
-           </div>
-        )}
-
-        {state.view === 'seller-dashboard' && (
-           <div className="space-y-10 animate-in fade-in duration-500">
-             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-               <div className="space-y-2">
-                 <div className="flex items-center gap-3">
-                   <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center"><BarChart3 size={24}/></div>
-                   <h1 className="text-5xl font-black tracking-tighter">Business Console</h1>
-                 </div>
-                 <p className="text-slate-500">Managing <span className="text-indigo-600 font-bold">{state.user?.name}'s</span> store performance and inventory.</p>
-               </div>
-               <div className="flex bg-white p-1 rounded-2xl border shadow-sm">
-                 {[
-                   { id: 'analytics', label: 'Analytics', icon: TrendingUp },
-                   { id: 'orders', label: 'Fulfillment', icon: PackageOpen },
-                   { id: 'inventory', label: 'Inventory', icon: Store }
-                 ].map(tab => (
-                   <button 
-                     key={tab.id}
-                     onClick={() => setSellerTab(tab.id as any)}
-                     className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${sellerTab === tab.id ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}
-                   >
-                     <tab.icon size={14}/> {tab.label}
-                   </button>
-                 ))}
-               </div>
-             </div>
-
-             {sellerTab === 'analytics' && (
-               <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
-                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                   {[
-                     { label: 'Net Revenue', val: '$14,290.00', sub: '+12.4% vs last mo', icon: DollarSign, color: 'indigo' },
-                     { label: 'Active Orders', val: '18', sub: '3 needing attention', icon: Package, color: 'blue' },
-                     { label: 'Total Customers', val: '248', sub: '+22 new this week', icon: Users, color: 'green' },
-                     { label: 'Store Rating', val: '4.92', sub: 'Based on 124 reviews', icon: Star, color: 'yellow' }
-                   ].map((stat, i) => (
-                     <div key={i} className="bg-white border p-8 rounded-[40px] space-y-4 shadow-sm hover:shadow-md transition-all">
-                       <div className={`w-12 h-12 bg-${stat.color}-50 text-${stat.color}-600 rounded-2xl flex items-center justify-center`}><stat.icon size={24}/></div>
-                       <div>
-                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{stat.label}</p>
-                         <h3 className="text-2xl font-black text-slate-900">{stat.val}</h3>
-                         <p className="text-[10px] text-slate-500 mt-1">{stat.sub}</p>
-                       </div>
-                     </div>
-                   ))}
-                 </div>
-                 <div className="bg-slate-900 text-white p-12 rounded-[56px] relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/20 blur-[100px] -translate-y-1/2 translate-x-1/2 rounded-full"></div>
-                    <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-8">
-                       <div className="space-y-4 max-w-md">
-                          <h2 className="text-4xl font-black leading-tight">Demand is spiking for <span className="text-indigo-400">Keyboards</span>.</h2>
-                          <p className="text-slate-400 text-sm">Nex has identified a 25% increase in searches for "Mechanical RGB" in your region. Consider running a flash sale to capture the traffic.</p>
-                          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl font-bold transition-all flex items-center gap-2">
-                             <TrendingUp size={18}/> Launch Optimized Campaign
-                          </button>
-                       </div>
-                       <div className="flex-1 max-w-sm w-full space-y-3">
-                          {[75, 42, 90, 60].map((h, i) => (
-                            <div key={i} className="flex items-center gap-4 group">
-                               <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden">
-                                  <div className="h-full bg-indigo-500 rounded-full group-hover:bg-indigo-400 transition-all" style={{width: `${h}%`}}></div>
-                               </div>
-                               <span className="text-[10px] font-mono text-slate-500 w-8">{h}%</span>
-                            </div>
-                          ))}
-                       </div>
-                    </div>
-                 </div>
-               </div>
-             )}
-
-             {sellerTab === 'orders' && (
-               <div className="bg-white border rounded-[48px] overflow-hidden shadow-sm animate-in slide-in-from-bottom-2 duration-300">
-                  <div className="bg-slate-50 px-10 py-6 border-b flex justify-between items-center">
-                    <h3 className="font-black text-xs uppercase tracking-widest text-slate-500">Incoming Orders</h3>
-                    <div className="flex items-center gap-2 bg-white px-4 py-1.5 rounded-full border text-[10px] font-bold text-slate-600">
-                       <Clock size={12}/> Auto-refreshing every 60s
-                    </div>
-                  </div>
-                  <div className="divide-y">
-                    {orders.length === 0 ? (
-                      <div className="py-20 text-center space-y-3">
-                        <div className="w-16 h-16 bg-slate-100 rounded-full mx-auto flex items-center justify-center text-slate-400"><ClipboardList size={32}/></div>
-                        <p className="text-slate-400 italic">No orders to fulfill at the moment. Marketing Nex is on it.</p>
-                      </div>
-                    ) : (
-                      orders.map(o => (
-                        <div key={o.id} className="px-10 py-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:bg-slate-50/50 transition-colors">
-                           <div className="flex items-center gap-6">
-                              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center font-black">#{o.id.slice(0, 2).toUpperCase()}</div>
-                              <div className="space-y-1">
-                                 <h4 className="font-bold text-slate-900">Order from Guest Customer</h4>
-                                 <p className="text-xs text-slate-500 flex items-center gap-2"><MapPin size={10}/> {o.shipping_address}</p>
-                                 <p className="text-[10px] text-slate-400 font-mono">{new Date(o.date).toLocaleString()}</p>
-                              </div>
-                           </div>
-                           <div className="flex items-center gap-12 w-full md:w-auto">
-                              <div className="text-right hidden sm:block">
-                                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Revenue</p>
-                                 <p className="text-lg font-black text-slate-900">${o.total.toFixed(2)}</p>
-                              </div>
-                              <div className="flex items-center gap-3 bg-white p-1 rounded-2xl border shadow-sm flex-1 md:flex-none">
-                                 <select 
-                                   value={o.status}
-                                   onChange={(e) => actions.updateOrderStatus(o.id, e.target.value)}
-                                   className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest px-4 py-2 focus:ring-0 cursor-pointer"
-                                 >
-                                    {['Pending', 'Shipped', 'Delivered', 'Cancelled'].map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                 </select>
-                                 <div className="pr-3 text-indigo-600"><ChevronDown size={14}/></div>
-                              </div>
-                           </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-               </div>
-             )}
-
-             {sellerTab === 'inventory' && (
-               <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-2xl font-black">Live Inventory</h3>
-                    <button 
-                      onClick={() => {
-                        const name = prompt("Product Name:");
-                        const price = parseFloat(prompt("Price ($):") || "0");
-                        if (name && !isNaN(price)) actions.addProduct({ name, price, seller_id: state.user?.id });
-                      }}
-                      className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-600 transition-all"
-                    >
-                      <Plus size={18}/> List New Product
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {products.filter(p => p.seller_id === state.user?.id || p.seller_name === state.user?.name).map(p => (
-                      <div key={p.id} className="bg-white border rounded-[32px] p-4 space-y-4 group relative overflow-hidden">
-                         <div className="aspect-square rounded-2xl overflow-hidden bg-slate-50">
-                           <img src={p.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                         </div>
-                         <div className="px-1">
-                           <h4 className="font-bold text-slate-900 line-clamp-1">{p.name}</h4>
-                           <div className="flex justify-between items-center mt-2">
-                             <span className="text-xs font-black text-indigo-600">${p.price}</span>
-                             <span className="text-[10px] text-slate-400 font-bold uppercase">{p.category}</span>
-                           </div>
-                         </div>
-                         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="flex gap-2">
-                               <button className="bg-white p-3 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Edit size={16}/></button>
-                               <button className="bg-white p-3 rounded-xl hover:bg-red-500 hover:text-white transition-all"><Trash2 size={16}/></button>
-                            </div>
-                         </div>
-                      </div>
-                    ))}
-                  </div>
                </div>
              )}
            </div>

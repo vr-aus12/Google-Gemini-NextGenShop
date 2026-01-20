@@ -18,6 +18,7 @@ interface AIAgentProps {
     updateOrderStatus: (orderId: string, status: string) => Promise<void>;
     login: () => void;
     checkout: () => Promise<void>;
+    setSellerTab: (tab: 'analytics' | 'orders' | 'inventory') => void;
   };
   currentCart: any[];
   products: Product[];
@@ -93,7 +94,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<{ role: 'user' | 'bot'; text: string; tool?: string }[]>([
-    { role: 'bot', text: 'Hello! I am Nex, your shopping assistant. I have access to your profile, orders, and products. How can I help?' }
+    { role: 'bot', text: 'Hi! Nex here. What do you need?' }
   ]);
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -131,7 +132,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
   }, [messages, isOpen]);
 
   const getUIContext = () => {
-    return `View=${currentViewRef.current}, User=${userRef.current?.name || 'Guest'}, Cart Size=${currentCartRef.current.length}, Search='${searchQueryRef.current}', SelectedProdID=${selectedProductIdRef.current}. Role=${userRef.current?.role}.`;
+    return `View=${currentViewRef.current}, User=${userRef.current?.name || 'Guest'}, Cart Size=${currentCartRef.current.length}, Search='${searchQueryRef.current}', SelectedProdID=${selectedProductIdRef.current}. Role=${userRef.current?.role}. SellerTab=${sellerTabRef.current}.`;
   };
 
   const executeToolCall = async (fc: any) => {
@@ -158,6 +159,16 @@ const AIAgent: React.FC<AIAgentProps> = ({
         act.navigateTo('orders');
       } else if (fc.name === 'setSellerOrderStatus') {
         await act.updateOrderStatus(fc.args.orderId, fc.args.status);
+      } else if (fc.name === 'addProduct') {
+        await act.addProduct(fc.args);
+        act.navigateTo('seller-dashboard');
+        act.setSellerTab('inventory');
+      } else if (fc.name === 'manageInventory') {
+        act.navigateTo('seller-dashboard');
+        act.setSellerTab('inventory');
+      } else if (fc.name === 'viewAnalytics') {
+        act.navigateTo('seller-dashboard');
+        act.setSellerTab('analytics');
       }
     } catch (err) {
       toolResult = { status: "error", message: String(err) };
@@ -182,14 +193,14 @@ const AIAgent: React.FC<AIAgentProps> = ({
       if (response.functionCalls) {
         for (const fc of response.functionCalls) {
           await executeToolCall(fc);
-          setMessages(prev => [...prev, { role: 'bot', text: `Executing: ${fc.name}...`, tool: fc.name }]);
+          setMessages(prev => [...prev, { role: 'bot', text: `Syncing: ${fc.name}...`, tool: fc.name }]);
         }
       }
       if (response.text) {
         setMessages(prev => [...prev, { role: 'bot', text: response.text }]);
       }
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'bot', text: "Error connecting to AI." }]);
+      setMessages(prev => [...prev, { role: 'bot', text: "Service error." }]);
     } finally {
       setIsTyping(false);
     }
@@ -246,7 +257,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
               for (const fc of message.toolCall.functionCalls) {
                 const result = await executeToolCall(fc);
                 sessionPromise.then(s => s.sendToolResponse({ functionResponses: { id: fc.id, name: fc.name, response: result } }));
-                setMessages(prev => [...prev, { role: 'bot', text: `AI Tool Call: ${fc.name}`, tool: fc.name }]);
+                setMessages(prev => [...prev, { role: 'bot', text: `Tool: ${fc.name}`, tool: fc.name }]);
               }
             }
             if (message.serverContent?.modelTurn?.parts?.[0]?.text) {
@@ -260,7 +271,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } } },
           tools: [{ functionDeclarations: marketplaceTools }],
-          systemInstruction: `You are Nex. ${getUIContext()}`
+          systemInstruction: `You are Nex. Keep responses brief. ${getUIContext()}`
         }
       });
       sessionPromiseRef.current = sessionPromise;
@@ -268,55 +279,55 @@ const AIAgent: React.FC<AIAgentProps> = ({
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4 pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
       {isOpen ? (
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border flex flex-col w-80 sm:w-96 h-[550px] pointer-events-auto animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className="bg-slate-900 p-4 text-white flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Bot className="w-6 h-6 text-indigo-400" />
+        <div className="bg-white rounded-[24px] shadow-2xl overflow-hidden border flex flex-col w-[240px] sm:w-[280px] h-[360px] pointer-events-auto animate-in slide-in-from-bottom-2 fade-in duration-300">
+          <div className="bg-slate-900 px-3 py-2 text-white flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Bot className="w-4 h-4 text-indigo-400" />
               <div>
-                <span className="font-bold text-sm block">Nex Shopping Agent</span>
-                <span className="text-[10px] text-indigo-400 uppercase tracking-widest">{isLive ? 'Live Voice' : 'Text Assistant'}</span>
+                <span className="font-bold text-[10px] block leading-none">Nex Agent</span>
+                <span className="text-[8px] text-indigo-400 uppercase tracking-tight">{isLive ? 'Voice Active' : 'Online'}</span>
               </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-slate-800 rounded-lg transition-colors"><ChevronDown size={20}/></button>
+            <button onClick={() => setIsOpen(false)} className="p-0.5 hover:bg-slate-800 rounded transition-colors"><ChevronDown size={16}/></button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-3.5 rounded-2xl text-sm leading-relaxed ${
-                  m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none shadow-md' : 'bg-white border rounded-bl-none text-slate-700 shadow-sm'
+                <div className={`max-w-[90%] p-2 rounded-xl text-[11px] leading-tight ${
+                  m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white border rounded-bl-none text-slate-700'
                 }`}>
                   {m.text}
-                  {m.tool && <div className="mt-2 text-[9px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Sparkles size={8}/> {m.tool}</div>}
+                  {m.tool && <div className="mt-1 text-[7px] font-bold text-indigo-500 uppercase flex items-center gap-0.5"><Sparkles size={6}/> {m.tool}</div>}
                 </div>
               </div>
             ))}
-            {isTyping && <Loader2 size={16} className="animate-spin text-indigo-600 mx-auto" />}
+            {isTyping && <Loader2 size={12} className="animate-spin text-indigo-600 mx-auto" />}
           </div>
 
-          <div className="p-4 border-t bg-white space-y-3">
-            <div className="flex items-center gap-2">
-              <button onClick={startLive} className={`p-3 rounded-full transition-all ${isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-indigo-50 text-indigo-600'}`}>
-                {isLive ? <AudioLines size={20} /> : <Mic size={20}/>}
+          <div className="px-2 py-2 border-t bg-white">
+            <div className="flex items-center gap-1.5">
+              <button onClick={startLive} className={`p-2 rounded-full transition-all shrink-0 ${isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-indigo-50 text-indigo-600'}`}>
+                {isLive ? <AudioLines size={14} /> : <Mic size={14}/>}
               </button>
-              <form onSubmit={handleSendMessage} className="flex-1 flex gap-2">
+              <form onSubmit={handleSendMessage} className="flex-1 flex gap-1">
                 <input 
                   type="text" value={input} 
                   onChange={e => setInput(e.target.value)}
-                  placeholder="Ask me to search, track, or buy..."
-                  className="flex-1 bg-slate-100 border-none rounded-2xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                  placeholder="Need help?"
+                  className="flex-1 bg-slate-100 border-none rounded-lg px-2 py-1.5 text-[11px] focus:ring-1 focus:ring-indigo-500/20"
                 />
-                <button disabled={!input.trim() || isTyping} className="p-2.5 bg-slate-900 text-white rounded-2xl disabled:opacity-20"><Send size={18}/></button>
+                <button disabled={!input.trim() || isTyping} className="p-1.5 bg-slate-900 text-white rounded-lg disabled:opacity-20 shrink-0"><Send size={14}/></button>
               </form>
             </div>
           </div>
         </div>
       ) : (
-        <button onClick={() => setIsOpen(true)} className="pointer-events-auto w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-all group">
-          <Bot size={28} className="group-hover:rotate-12 transition-transform" />
-          <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-full border-2 border-white"></div>
+        <button onClick={() => setIsOpen(true)} className="pointer-events-auto w-10 h-10 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all group relative">
+          <Bot size={20} className="group-hover:rotate-12 transition-transform" />
+          <div className="absolute top-0 right-0 w-2 h-2 bg-indigo-500 rounded-full border border-white"></div>
         </button>
       )}
     </div>

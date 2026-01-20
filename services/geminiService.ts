@@ -75,7 +75,8 @@ export const marketplaceTools: FunctionDeclaration[] = [
         address: { type: Type.STRING },
         cardNumber: { type: Type.STRING },
         cardExpiry: { type: Type.STRING },
-        cardCvv: { type: Type.STRING }
+        cardCvv: { type: Type.STRING },
+        role: { type: Type.STRING, enum: ['buyer', 'seller'] }
       }
     }
   },
@@ -113,6 +114,37 @@ export const marketplaceTools: FunctionDeclaration[] = [
       },
       required: ['orderId', 'status']
     }
+  },
+  {
+    name: 'addProduct',
+    description: 'Allows a seller to list a new product for sale.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING },
+        description: { type: Type.STRING },
+        price: { type: Type.NUMBER },
+        category: { type: Type.STRING, enum: ['Electronics', 'Gaming', 'Workstation', 'Audio', 'Accessories'] },
+        image: { type: Type.STRING, description: 'Optional image URL' }
+      },
+      required: ['name', 'price', 'category']
+    }
+  },
+  {
+    name: 'manageInventory',
+    description: 'Navigates the seller to their inventory management tab.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {}
+    }
+  },
+  {
+    name: 'viewAnalytics',
+    description: 'Navigates the seller to their store analytics dashboard.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {}
+    }
   }
 ];
 
@@ -129,12 +161,13 @@ export function createChatSession(initialContext?: string): Chat {
       YOUR ROLE:
       - You can perform ANY action the user can do in the UI.
       - Search, Add to cart, Navigate, Login, Checkout, Manage Profile, Post Reviews, and Track Orders.
-      - If you are in seller mode, you can update order statuses.
+      - SELLER MODE: If user is a seller, you can manage inventory, add products, update order status, and view analytics.
+      - If a user wants to become a seller, help them update their profile role to 'seller'.
       
       GUIDELINES:
       - Always use the tools to perform actions.
-      - If a user wants to buy something, guide them through adding to cart and then suggest 'checkout'.
       - If they aren't logged in and want to see orders, call the 'login' tool first.
+      - If they ask to add a product, use 'addProduct'.
       
       VOICE PERSONA: Professional and proactive.`,
       tools: [{ functionDeclarations: marketplaceTools }],
