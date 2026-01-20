@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Gemini-Powered Marketplace",
+  "description": "A high-end retail marketplace featuring a proactive AI shopping assistant that can navigate, search, filter, and manage your cart through natural language.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
