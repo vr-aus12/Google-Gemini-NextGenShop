@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, HTTPException, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -97,12 +98,21 @@ def init_db():
     cursor.execute('SELECT COUNT(*) FROM products')
     if cursor.fetchone()[0] == 0:
         dummy_products = [
-            ('1', 'Mechanical Gaming Keyboard', 'Ultra-responsive RGB mechanical keyboard.', 129.99, 'Gaming', 'https://picsum.photos/seed/keyboard/400/400', 4.8, json.dumps(['RGB Lighting', 'Tactile Brown Switches']), 's1', 'Gaming Central'),
-            ('2', 'Logitech G Pro Wireless', 'Esports pro mouse.', 99.99, 'Gaming', 'https://picsum.photos/seed/mouse/400/400', 4.9, json.dumps(['Lightspeed Wireless', 'HERO 25K Sensor']), 's2', 'ProGear'),
-            ('3', 'Sony WH-1000XM5', 'Noise canceling headphones.', 348.00, 'Audio', 'https://picsum.photos/seed/headphones/400/400', 4.7, json.dumps(['30h Battery', 'LDAC']), 's3', 'Audio Hub'),
-            ('4', 'Ergonomic Office Chair', 'Premium mesh chair.', 499.00, 'Workstation', 'https://picsum.photos/seed/chair/400/400', 4.6, json.dumps(['Adjustable Lumbar', '4D Armrests']), 's4', 'Office Pro')
+            ('1', 'Mechanical Gaming Keyboard', 'Ultra-responsive RGB mechanical keyboard.', 129.99, 'Gaming', 'https://images.unsplash.com/photo-1511467687858-23d96c32e4ae?q=80&w=800&auto=format&fit=crop', 4.8, json.dumps(['RGB Lighting', 'Tactile Brown Switches']), 'admin-id', 'NexShop'),
+            ('2', 'Logitech G Pro Wireless', 'Esports pro mouse.', 99.99, 'Gaming', 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?q=80&w=800&auto=format&fit=crop', 4.9, json.dumps(['Lightspeed Wireless', 'HERO 25K Sensor']), 'admin-id', 'NexShop'),
+            ('3', 'Sony WH-1000XM5', 'Noise canceling headphones.', 348.00, 'Audio', 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?q=80&w=800&auto=format&fit=crop', 4.7, json.dumps(['30h Battery', 'LDAC']), 'admin-id', 'NexShop'),
+            ('4', 'Ergonomic Office Chair', 'Premium mesh chair.', 499.00, 'Workstation', 'https://images.unsplash.com/photo-1505797149-43b007664a3d?q=80&w=800&auto=format&fit=crop', 4.6, json.dumps(['Adjustable Lumbar', '4D Armrests']), 'admin-id', 'NexShop')
         ]
         cursor.executemany('INSERT INTO products (id, name, description, price, category, image, rating, specs, seller_id, seller_name) VALUES (?,?,?,?,?,?,?,?,?,?)', dummy_products)
+
+    # Seed Admin User if empty
+    cursor.execute('SELECT COUNT(*) FROM users WHERE role = "admin"')
+    if cursor.fetchone()[0] == 0:
+        admin_id = 'admin-id'
+        cursor.execute('''
+            INSERT INTO users (id, name, email, password_hash, role, isVerified)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (admin_id, 'NexShop Admin', 'admin@nexshop.ai', pwd_context.hash('admin'), 'admin', 1))
 
     conn.commit()
     conn.close()
@@ -118,7 +128,7 @@ async def register(user: UserRegister, db: sqlite3.Connection = Depends(get_db))
     
     user_id = str(uuid.uuid4())
     password_hash = pwd_context.hash(user.password)
-    verification_token = str(uuid.uuid4()[:8]) # Short token for easier manual entry
+    verification_token = str(uuid.uuid4()[:8])
     
     cursor.execute('''
         INSERT INTO users (id, name, email, password_hash, role, isVerified, verificationToken)
@@ -140,37 +150,16 @@ async def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)
     if 'password_hash' in user_dict: del user_dict['password_hash']
     return user_dict
 
-@app.get("/verify-email/{token}")
-async def verify_email(token: str, db: sqlite3.Connection = Depends(get_db)):
+@app.get("/admin/users")
+async def get_all_users(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("SELECT id FROM users WHERE verificationToken = ?", (token,))
-    user = cursor.fetchone()
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid verification token")
-    
-    cursor.execute("UPDATE users SET isVerified = 1, verificationToken = NULL WHERE id = ?", (user['id'],))
-    db.commit()
-    return {"status": "success", "message": "Email verified successfully"}
-
-@app.post("/auth/google")
-async def google_auth(auth: GoogleAuth, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM users WHERE email = ?", (auth.email,))
-    user = cursor.fetchone()
-    
-    if not user:
-        user_id = str(uuid.uuid4())
-        cursor.execute('''
-            INSERT INTO users (id, name, email, role, isVerified)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, auth.name, auth.email, 'buyer', 1))
-        db.commit()
-        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-        user = cursor.fetchone()
-    
-    user_dict = dict(user)
-    if 'password_hash' in user_dict: del user_dict['password_hash']
-    return user_dict
+    cursor.execute("SELECT * FROM users")
+    users = []
+    for row in cursor.fetchall():
+        d = dict(row)
+        if 'password_hash' in d: del d['password_hash']
+        users.append(d)
+    return users
 
 @app.get("/products")
 async def get_products(db: sqlite3.Connection = Depends(get_db)):
@@ -210,7 +199,7 @@ async def get_cart(user_id: str, db: sqlite3.Connection = Depends(get_db)):
         WHERE c.user_id = ?
     ''', (user_id,))
     rows = cursor.fetchall()
-    return [{"product": dict(r), "quantity": r['quantity']} for r in rows]
+    return [{"product": {**dict(r), "specs": json.loads(r['specs']) if r['specs'] else []}, "quantity": r['quantity']} for r in rows]
 
 @app.post("/cart")
 async def add_to_cart(data: dict, db: sqlite3.Connection = Depends(get_db)):
@@ -229,7 +218,6 @@ async def clear_cart(user_id: str, db: sqlite3.Connection = Depends(get_db)):
 
 @app.post("/checkout")
 async def checkout(req: dict, db: sqlite3.Connection = Depends(get_db)):
-    # Simple order tracking simulation
     order_id = str(uuid.uuid4())
     return {"status": "success", "order_id": order_id}
 

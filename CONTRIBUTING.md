@@ -10,10 +10,11 @@ We love contributions! Here’s how you can help:
 5. **Open a Pull Request**.
 
 ## 💻 Technical Notes
-- We use **React 18** and **TypeScript**.
+- We use **React 19** and **TypeScript**.
 - **Tailwind CSS** is used for all styling.
-- All AI logic resides in `src/services/geminiService.ts`.
-- Ensure you do not commit any `.env` files or API keys.
+- All AI logic resides in `services/geminiService.ts`.
+- The persistence logic is in `services/api.ts`.
+- Ensure you do not commit any `.env` files or hardcoded API keys.
 
 ## ⚖️ Code of Conduct
 Please be respectful and helpful to other contributors. Our goal is to build a high-quality community project.

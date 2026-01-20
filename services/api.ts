@@ -1,232 +1,165 @@
 
-import { Product, CartItem, User, Order, Review } from '../types';
+import { Product, CartItem, User, Order, Review, ChatSentiment } from '../types';
 import { DUMMY_PRODUCTS } from '../constants';
 
-const API_BASE = 'http://localhost:8000';
-
-// Unified Store Management
-const getStore = <T>(key: string, def: T): T => {
-  const saved = localStorage.getItem(`nexshop_${key}`);
-  const data = saved ? JSON.parse(saved) : def;
-  return data;
+// Keys for our "Tables"
+const DB_KEYS = {
+  PRODUCTS: 'nex_db_products',
+  USERS: 'nex_db_users',
+  CARTS: 'nex_db_carts',
+  ORDERS: 'nex_db_orders',
+  REVIEWS: 'nex_db_reviews',
+  SENTIMENTS: 'nex_db_sentiments'
 };
 
-const setStore = (key: string, val: any) => {
-  localStorage.setItem(`nexshop_${key}`, JSON.stringify(val));
+// Seed Data
+const SEED_USERS: User[] = [
+  { id: 'admin-id', name: 'NexShop Admin', email: 'admin@nexshop.ai', password: 'admin', role: 'admin', isLoggedIn: false, isVerified: true },
+  { id: 'user-sam', name: 'Sam Sample', email: 'sam@example.com', password: 'password', role: 'buyer', isLoggedIn: false, isVerified: true, address: '456 Buyer Blvd, San Francisco, CA' },
+  { id: 'user-jane', name: 'Jane Seller', email: 'jane@techstudio.com', password: 'password', role: 'seller', isLoggedIn: false, isVerified: true }
+];
+
+// Helper to interact with our "DB"
+const getTable = <T>(key: string): T[] => {
+  const data = localStorage.getItem(key);
+  return data ? JSON.parse(data) : [];
 };
 
-// Initialize Stores if they don't exist
-if (!localStorage.getItem('nexshop_products')) setStore('products', DUMMY_PRODUCTS);
-if (!localStorage.getItem('nexshop_users')) setStore('users', []);
+const setTable = (key: string, data: any) => {
+  localStorage.setItem(key, JSON.stringify(data));
+};
 
-export class ApiError extends Error {
-  status?: number;
-  constructor(message: string, status?: number) {
-    super(message);
-    this.status = status;
-    this.name = 'ApiError';
-  }
-}
+// Initialize DB if empty
+const initDB = () => {
+  if (getTable(DB_KEYS.PRODUCTS).length === 0) setTable(DB_KEYS.PRODUCTS, DUMMY_PRODUCTS);
+  if (getTable(DB_KEYS.USERS).length === 0) setTable(DB_KEYS.USERS, SEED_USERS);
+  if (!localStorage.getItem(DB_KEYS.CARTS)) setTable(DB_KEYS.CARTS, {});
+};
 
-async function safeFetch<T>(url: string, options?: RequestInit, fallback?: T): Promise<T> {
-  try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 2000); 
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: 'Unknown server error' }));
-      throw new ApiError(errorData.detail || 'API Error', res.status);
-    }
-    return await res.json();
-  } catch (err: any) {
-    if (fallback !== undefined) return fallback;
-    throw err;
-  }
-}
+initDB();
 
 export const api = {
   async register(data: any): Promise<any> {
-    try {
-      const res = await safeFetch(`${API_BASE}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      return res;
-    } catch (e) {
-      console.warn("Backend offline. Falling back to LocalStorage registration.");
-      const users = getStore<User[]>('users', []);
-      if (users.find(u => u.email === data.email)) {
-        throw new Error("Registration failed: This email is already registered.");
-      }
-      
-      const token = Math.random().toString(36).substr(2, 6).toUpperCase();
-      const newUser: User = { 
-        ...data, 
-        id: 'local-' + Math.random().toString(36).substr(2, 9), 
-        isLoggedIn: false, 
-        isVerified: false, 
-        verificationToken: token,
-        role: 'buyer'
-      };
-      
-      users.push(newUser);
-      setStore('users', users);
-      console.log("Local user created successfully:", newUser.email);
-      return { status: 'success', token };
-    }
+    const users = getTable<User>(DB_KEYS.USERS);
+    if (users.find(u => u.email === data.email)) throw new Error("Email exists.");
+    const newUser: User = { 
+      ...data, 
+      id: 'u-' + Math.random().toString(36).substr(2, 9), 
+      role: 'buyer', 
+      isVerified: true, 
+      isLoggedIn: false 
+    };
+    users.push(newUser);
+    setTable(DB_KEYS.USERS, users);
+    return { status: 'success', user: newUser };
   },
 
   async login(credentials: any): Promise<User> {
-    try {
-      const data = await safeFetch<any>(`${API_BASE}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials)
-      });
-      return { ...data, isLoggedIn: true };
-    } catch (e) {
-      console.warn("Backend offline. Falling back to LocalStorage login.");
-      const users = getStore<User[]>('users', []);
-      const user = users.find(u => u.email === credentials.email);
-      
-      if (!user) {
-        throw new Error("Account not found. Please register first.");
-      }
-      
-      const passMatch = user.password === credentials.password || user.password_hash === credentials.password;
-      if (!passMatch) {
-        throw new Error("Invalid credentials. Please check your password.");
-      }
-      
-      console.log("Local login successful for:", user.email);
-      return { ...user, isLoggedIn: true };
-    }
+    const users = getTable<User>(DB_KEYS.USERS);
+    const user = users.find(u => u.email === credentials.email && (u.password === credentials.password || u.password_hash === credentials.password));
+    if (!user) throw new Error("Invalid credentials. Use admin@nexshop.ai / admin");
+    return { ...user, isLoggedIn: true };
   },
 
-  async verifyEmail(token: string): Promise<any> {
-    try {
-      return await safeFetch(`${API_BASE}/verify-email/${token}`);
-    } catch (e) {
-      const users = getStore<User[]>('users', []);
-      const idx = users.findIndex((u: any) => u.verificationToken === token);
-      if (idx === -1) throw new Error("Invalid verification token. Please double check the code.");
-      
-      users[idx].isVerified = true;
-      delete (users[idx] as any).verificationToken;
-      setStore('users', users);
-      return { status: 'success' };
-    }
+  async getAllUsers(): Promise<User[]> {
+    return getTable<User>(DB_KEYS.USERS);
   },
 
   async getProducts(): Promise<Product[]> {
-    return await safeFetch(`${API_BASE}/products`, {}, getStore<Product[]>('products', DUMMY_PRODUCTS));
+    return getTable<Product>(DB_KEYS.PRODUCTS);
   },
 
   async updateProfile(id: string, profile: Partial<User>): Promise<void> {
-    try {
-      await safeFetch(`${API_BASE}/user/${id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile)
-      });
-    } catch (e) {
-      const users = getStore<User[]>('users', []);
-      const idx = users.findIndex(u => u.id === id);
-      if (idx > -1) {
-        users[idx] = { ...users[idx], ...profile };
-        setStore('users', users);
-      }
+    const users = getTable<User>(DB_KEYS.USERS);
+    const idx = users.findIndex(u => u.id === id);
+    if (idx > -1) {
+      users[idx] = { ...users[idx], ...profile };
+      setTable(DB_KEYS.USERS, users);
     }
   },
 
   async getUser(id: string): Promise<User> {
-    try {
-        const data = await safeFetch<any>(`${API_BASE}/user/${id}`);
-        return { ...data };
-    } catch(e) {
-        const users = getStore<User[]>('users', []);
-        return users.find(u => u.id === id) || { id, name: 'Guest', email: '', isLoggedIn: false, isVerified: false, role: 'buyer' };
-    }
+    const user = getTable<User>(DB_KEYS.USERS).find(u => u.id === id);
+    if (!user) throw new Error("User not found");
+    return user;
   },
 
   async addToCart(userId: string, productId: string, quantity: number): Promise<void> {
-    const carts = getStore<Record<string, CartItem[]>>('carts', {});
-    const cart = carts[userId] || [];
-    const existing = cart.find(i => i.product.id === productId);
-    if (existing) existing.quantity += quantity;
-    else {
-      const products = getStore<Product[]>('products', DUMMY_PRODUCTS);
-      const product = products.find(p => p.id === productId);
-      if (product) cart.push({ product, quantity });
+    const carts = JSON.parse(localStorage.getItem(DB_KEYS.CARTS) || '{}');
+    const userCart = carts[userId] || [];
+    const prod = getTable<Product>(DB_KEYS.PRODUCTS).find(p => p.id === productId);
+    if (!prod) return;
+
+    const existing = userCart.find((i: any) => i.product.id === productId);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      userCart.push({ product: prod, quantity });
     }
-    carts[userId] = cart;
-    setStore('carts', carts);
+    carts[userId] = userCart;
+    setTable(DB_KEYS.CARTS, carts);
   },
 
   async getCart(userId: string): Promise<CartItem[]> {
-    const carts = getStore<Record<string, CartItem[]>>('carts', {});
+    const carts = JSON.parse(localStorage.getItem(DB_KEYS.CARTS) || '{}');
     return carts[userId] || [];
   },
 
   async clearCart(userId: string): Promise<void> {
-    const carts = getStore<Record<string, CartItem[]>>('carts', {});
+    const carts = JSON.parse(localStorage.getItem(DB_KEYS.CARTS) || '{}');
     carts[userId] = [];
-    setStore('carts', carts);
+    setTable(DB_KEYS.CARTS, carts);
   },
 
   async checkout(userId: string, address: string, paymentMethod: string, items: CartItem[]): Promise<Order> {
-    const orders = getStore<Order[]>('orders', []);
-    const total = items.reduce((acc, i) => acc + (i.product.price * i.quantity), 0);
+    const orders = getTable<Order>(DB_KEYS.ORDERS);
     const newOrder: Order = {
       id: 'ORD-' + Math.random().toString(36).substr(2, 6).toUpperCase(),
       user_id: userId,
       date: new Date().toISOString(),
-      total,
+      total: items.reduce((a, c) => a + (c.product.price * c.quantity), 0),
       shipping_address: address,
       payment_method: paymentMethod,
       status: 'Pending',
       items: items.map(i => ({ product: i.product, price: i.product.price, quantity: i.quantity }))
     };
     orders.push(newOrder);
-    setStore('orders', orders);
+    setTable(DB_KEYS.ORDERS, orders);
     return newOrder;
   },
 
-  async getMyOrders(userId: string): Promise<Order[]> {
-    const orders = getStore<Order[]>('orders', []);
-    return orders.filter(o => o.user_id === userId).reverse();
+  async getAllOrders(): Promise<Order[]> {
+    return getTable<Order>(DB_KEYS.ORDERS).reverse();
   },
 
-  async getOrder(orderId: string): Promise<Order | null> {
-    const orders = getStore<Order[]>('orders', []);
-    return orders.find(o => o.id === orderId) || null;
+  async getMyOrders(userId: string): Promise<Order[]> {
+    return getTable<Order>(DB_KEYS.ORDERS).filter(o => o.user_id === userId).reverse();
   },
 
   async getSellerOrders(sellerId: string): Promise<Order[]> {
-    const orders = getStore<Order[]>('orders', []);
-    return orders.filter(o => o.items.some(i => i.product.seller_id === sellerId)).reverse();
+    return getTable<Order>(DB_KEYS.ORDERS).filter(o => o.items.some(i => i.product.seller_id === sellerId)).reverse();
   },
 
   async updateOrderStatus(orderId: string, status: string): Promise<void> {
-    const orders = getStore<Order[]>('orders', []);
+    const orders = getTable<Order>(DB_KEYS.ORDERS);
     const idx = orders.findIndex(o => o.id === orderId);
     if (idx > -1) {
       orders[idx].status = status as any;
-      setStore('orders', orders);
+      setTable(DB_KEYS.ORDERS, orders);
     }
   },
 
-  async getReviews(productId: string): Promise<Review[]> {
-    const reviews = getStore<Record<string, Review[]>>('reviews', {});
-    return reviews[productId] || [];
+  async getAllSentiments(): Promise<ChatSentiment[]> {
+    return getTable<ChatSentiment>(DB_KEYS.SENTIMENTS);
   },
 
   async submitReview(productId: string, review: any): Promise<void> {
-    const reviews = getStore<Record<string, Review[]>>('reviews', {});
-    if (!reviews[productId]) reviews[productId] = [];
-    reviews[productId].push({ ...review, id: Math.random().toString(36).substr(2, 5) });
-    setStore('reviews', reviews);
+    const reviews = getTable<Review>(DB_KEYS.REVIEWS);
+    reviews.push({ ...review, id: Math.random().toString(36).substr(2, 5), date: new Date().toISOString() });
+    setTable(DB_KEYS.REVIEWS, reviews);
+  },
+
+  async getReviews(productId: string): Promise<Review[]> {
+    return getTable<Review>(DB_KEYS.REVIEWS).filter(r => (r as any).product_id === productId);
   }
 };

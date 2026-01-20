@@ -12,6 +12,12 @@ export interface Product {
   specs: string[];
   seller_id: string;
   seller_name: string;
+  aiInsight?: string;
+}
+
+export interface GroundingSource {
+  title: string;
+  uri: string;
 }
 
 export interface Review {
@@ -23,13 +29,23 @@ export interface Review {
   date: string;
 }
 
+export interface ChatSentiment {
+  id: string;
+  user_id: string;
+  user_name: string;
+  timestamp: string;
+  score: 'Positive' | 'Neutral' | 'Negative';
+  summary: string;
+  raw_messages: number;
+}
+
 export interface CartItem {
   product: Product;
   quantity: number;
 }
 
 export interface OrderItem {
-  product: Product; // Use the full product object for persistence
+  product: Product;
   price: number;
   quantity: number;
 }
@@ -49,8 +65,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  password?: string; // Needed for local persistence login
-  // Fix: Added password_hash and verificationToken to resolve type errors in services/api.ts
+  password?: string;
   password_hash?: string;
   verificationToken?: string;
   isLoggedIn: boolean;
@@ -62,7 +77,7 @@ export interface User {
   cardCvv?: string;
 }
 
-export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'order-detail' | 'login' | 'register' | 'verify-email' | 'tests';
+export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'order-detail' | 'login' | 'register' | 'verify-email' | 'admin' | 'presentation';
 
 export interface MarketplaceState {
   view: AppView;
