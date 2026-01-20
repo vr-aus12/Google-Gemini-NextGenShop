@@ -1,4 +1,7 @@
-
 fastapi
 uvicorn
-pydantic
+pydantic[email]
+email-validator
+passlib[bcrypt]
+bcrypt
+python-multipart

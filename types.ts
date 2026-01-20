@@ -44,16 +44,8 @@ export interface Order {
   total: number;
   shipping_address: string;
   payment_method: string;
-  status: 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled'; // Global status
+  status: 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
   items: OrderItem[];
-}
-
-export interface Analytics {
-  totalRevenue: number;
-  totalSales: number;
-  topProduct: string;
-  monthlyRevenue: { month: string; amount: number }[];
-  commission_earned: number;
 }
 
 export interface User {
@@ -61,6 +53,7 @@ export interface User {
   name: string;
   email: string;
   isLoggedIn: boolean;
+  isVerified: boolean;
   role: 'buyer' | 'seller' | 'admin';
   address?: string;
   cardNumber?: string;
@@ -68,7 +61,7 @@ export interface User {
   cardCvv?: string;
 }
 
-export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders';
+export type AppView = 'home' | 'search' | 'cart' | 'product-detail' | 'checkout' | 'checkout-success' | 'seller-dashboard' | 'compare' | 'profile' | 'orders' | 'login' | 'register' | 'verify-email';
 
 export interface MarketplaceState {
   view: AppView;

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert } from 'lucide-react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, BarChart3, ClipboardList, RefreshCcw, Scale, Trash2, Edit, CreditCard, ShieldCheck, Truck, Sparkles, Hash, MapPin, Package, Clock, MessageCircle, PlayCircle, ShieldAlert, Mail, Lock, User as UserIconSmall, ArrowLeft, BellRing } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
@@ -17,6 +17,7 @@ const App: React.FC = () => {
   
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [showTests, setShowTests] = useState(false);
+  const [notification, setNotification] = useState<{ message: string; sub: string; icon: any } | null>(null);
 
   const [state, setState] = useState<MarketplaceState>(() => {
     const savedUser = localStorage.getItem('nexshop_user');
@@ -41,7 +42,6 @@ const App: React.FC = () => {
     if (state.user) {
       api.getCart(state.user.id).then(c => setState(prev => ({ ...prev, cart: c })));
     }
-    // Auto-run tests once on mount for "every change" simulation
     handleRunTests();
   }, [state.user?.id]);
 
@@ -66,38 +66,6 @@ const App: React.FC = () => {
     });
   }, [products, state.searchQuery, state.activeFilters]);
 
-  const handleLogin = () => {
-    setIsAuthenticating(true);
-    setTimeout(async () => {
-      const user = await api.getUser('user_dev_1');
-      setState(prev => ({ ...prev, user }));
-      localStorage.setItem('nexshop_user', JSON.stringify(user));
-      setIsAuthenticating(false);
-    }, 800);
-  };
-
-  const handleCheckout = async () => {
-    if (!state.user) {
-      alert("Login is mandatory to checkout!");
-      handleLogin();
-      return;
-    }
-    if (state.cart.length === 0) {
-      alert("Your cart is empty!");
-      return;
-    }
-    if (!state.user?.address || !state.user?.cardNumber) {
-      alert("Please update your profile with address and payment details first!");
-      setState(prev => ({ ...prev, view: 'profile' }));
-      return;
-    }
-    setIsProcessingPayment(true);
-    await api.checkout(state.user.id, state.user.address, 'Visa **** ' + state.user.cardNumber.slice(-4));
-    await api.clearCart(state.user.id);
-    setState(prev => ({ ...prev, view: 'checkout-success', cart: [] }));
-    setIsProcessingPayment(false);
-  };
-
   const actions = {
     search: (query: string, category?: Category, min?: number, max?: number) => {
       setState(prev => ({ 
@@ -115,7 +83,12 @@ const App: React.FC = () => {
     addToCart: async (idOrName: string, qty: number = 1) => {
       if (!state.user) {
         alert("Login is mandatory to add items to your cart!");
-        handleLogin();
+        setState(prev => ({ ...prev, view: 'login' }));
+        return;
+      }
+      if (!state.user.isVerified) {
+        alert("Please verify your email before shopping!");
+        setState(prev => ({ ...prev, view: 'verify-email' }));
         return;
       }
       const product = products.find(p => p.id === idOrName || p.name.toLowerCase() === idOrName.toLowerCase());
@@ -170,38 +143,141 @@ const App: React.FC = () => {
         compareList: prev.compareList.includes(id) ? prev.compareList : [...prev.compareList, id]
       }));
     },
-    login: handleLogin,
-    checkout: handleCheckout
+    login: () => setState(prev => ({ ...prev, view: 'login' })),
+    checkout: async () => {
+      if (!state.user) {
+        alert("Login is mandatory to checkout!");
+        setState(prev => ({ ...prev, view: 'login' }));
+        return;
+      }
+      if (!state.user.isVerified) {
+        alert("Please verify your email before checkout!");
+        setState(prev => ({ ...prev, view: 'verify-email' }));
+        return;
+      }
+      if (state.cart.length === 0) {
+        alert("Your cart is empty!");
+        return;
+      }
+      if (!state.user?.address || !state.user?.cardNumber) {
+        alert("Please update your profile with address and payment details first!");
+        setState(prev => ({ ...prev, view: 'profile' }));
+        return;
+      }
+      setIsProcessingPayment(true);
+      await api.checkout(state.user.id, state.user.address, 'Visa **** ' + state.user.cardNumber.slice(-4));
+      await api.clearCart(state.user.id);
+      setState(prev => ({ ...prev, view: 'checkout-success', cart: [] }));
+      setIsProcessingPayment(false);
+    }
   };
 
   const handleRunTests = () => {
     runFunctionalTests(setTestResults, actions);
   };
 
-  const selectedProduct = products.find(p => p.id === state.selectedProductId);
+  const handleEmailLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    setIsAuthenticating(true);
+    try {
+      const user = await api.login({ email, password });
+      setState(prev => ({ ...prev, user, view: 'home' }));
+      localStorage.setItem('nexshop_user', JSON.stringify(user));
+    } catch (err: any) {
+      alert("Login failed: " + err.message);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleEmailRegister = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const name = formData.get('name') as string;
+    setIsAuthenticating(true);
+    try {
+      const res = await api.register({ email, password, name });
+      setNotification({
+        message: "New Simulated Email",
+        sub: `Verification Token: ${res.token}. Use this code to verify your account.`,
+        icon: Mail
+      });
+      setState(prev => ({ ...prev, view: 'verify-email' }));
+    } catch (err: any) {
+      alert("Registration failed: " + err.message);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const token = formData.get('token') as string;
+    try {
+      await api.verifyEmail(token);
+      alert("Verification successful! Please login.");
+      setNotification(null);
+      setState(prev => ({ ...prev, view: 'login' }));
+    } catch (err: any) {
+      alert("Verification failed: " + err.message);
+    }
+  };
+
+  const handleGoogleLogin = () => {
+    setIsAuthenticating(true);
+    setTimeout(async () => {
+      const user = await api.googleAuth({ 
+        token: 'simulated_google_token',
+        email: 'user@gmail.com',
+        name: 'Google User'
+      });
+      setState(prev => ({ ...prev, user, view: 'home' }));
+      localStorage.setItem('nexshop_user', JSON.stringify(user));
+      setIsAuthenticating(false);
+    }, 1200);
+  };
+
   const cartTotal = state.cart.reduce((acc, i) => acc + (i.product.price * i.quantity), 0);
-  const compareProducts = products.filter(p => state.compareList.includes(p.id));
+  const selectedProduct = products.find(p => p.id === state.selectedProductId);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Mock Simulated Inbox Notification */}
+      {notification && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-w-sm bg-slate-900 text-white p-5 rounded-[24px] shadow-2xl flex items-start gap-4 animate-in slide-in-from-top-12 duration-500">
+          <div className="bg-indigo-500 p-2.5 rounded-xl"><notification.icon size={20}/></div>
+          <div className="flex-1 space-y-1">
+            <h4 className="font-bold text-sm">{notification.message}</h4>
+            <p className="text-xs text-slate-400 leading-relaxed">{notification.sub}</p>
+          </div>
+          <button onClick={() => setNotification(null)} className="p-1 hover:bg-slate-800 rounded-lg"><X size={16}/></button>
+        </div>
+      )}
+
       {/* Background Overlay for Loading State */}
       {(isAuthenticating || isProcessingPayment) && (
         <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-300">
           <div className="bg-white p-8 rounded-[32px] shadow-2xl flex flex-col items-center gap-4 text-center max-w-xs">
             <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
             <div className="space-y-1">
-              <h3 className="font-bold text-lg">{isAuthenticating ? 'Nex is authenticating...' : 'Processing Payment...'}</h3>
-              <p className="text-sm text-slate-500">{isAuthenticating ? 'Securing your high-end tech workspace.' : 'Finalizing your luxury curated purchase.'}</p>
+              <h3 className="font-bold text-lg">{isAuthenticating ? 'Authenticating...' : 'Processing Payment...'}</h3>
+              <p className="text-sm text-slate-500">Securing your premium tech workspace.</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Diagnostics / Test Panel */}
+      {/* Diagnostics Panel */}
       {showTests && (
         <div className="fixed top-20 right-8 z-[60] w-72 bg-white border shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-right duration-300">
           <div className="bg-slate-900 p-4 text-white flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={14} className="text-indigo-400"/> System Diagnostics</span>
+            <span className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={14} className="text-indigo-400"/> System Status</span>
             <button onClick={() => setShowTests(false)} className="hover:text-red-400"><X size={16}/></button>
           </div>
           <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
@@ -240,19 +316,12 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button onClick={() => setShowTests(!showTests)} className="p-2.5 text-slate-400 hover:text-indigo-600 transition-colors" title="System Status">
+          <button onClick={() => setShowTests(!showTests)} className="p-2.5 text-slate-400 hover:text-indigo-600 transition-colors">
             <ShieldCheck className="w-5 h-5" />
-          </button>
-          <button className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full" onClick={() => actions.navigateTo('compare')} title="Compare">
-            <Scale className="w-5 h-5" />
-            {state.compareList.length > 0 && <span className="absolute -top-1 -right-1 bg-indigo-500 w-4 h-4 rounded-full text-[10px] text-white flex items-center justify-center">{state.compareList.length}</span>}
-          </button>
-          <button className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full" onClick={() => actions.navigateTo('seller-dashboard')}>
-            <Store className="w-5 h-5" />
           </button>
           <button className="relative p-2.5 text-slate-600 hover:bg-slate-100 rounded-full" onClick={() => actions.navigateTo('cart')}>
             <ShoppingCart className="w-5 h-5" />
-            {state.cart.length > 0 && <span className="absolute top-1 right-1 bg-indigo-600 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">{state.cart.length}</span>}
+            {state.cart.length > 0 && <span className="absolute top-1 right-1 bg-indigo-600 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">{state.cart.length}</span>}
           </button>
           
           {state.user ? (
@@ -260,18 +329,91 @@ const App: React.FC = () => {
               <button onClick={() => actions.navigateTo('profile')} className="flex items-center gap-2 bg-white border px-3 py-1.5 rounded-full shadow-sm hover:border-indigo-200 transition-colors">
                 <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-[10px]">{state.user.name.charAt(0)}</div>
                 <span className="text-xs font-semibold">{state.user.name.split(' ')[0]}</span>
+                {!state.user.isVerified && <span className="w-2 h-2 bg-red-500 rounded-full" title="Not Verified"></span>}
               </button>
-              <button onClick={() => { localStorage.removeItem('nexshop_user'); setState(prev => ({ ...prev, user: null })); }} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
+              <button onClick={() => { localStorage.removeItem('nexshop_user'); setState(prev => ({ ...prev, user: null })); }} className="p-2 text-slate-400 hover:text-red-500">
                 <LogOut size={16} />
               </button>
             </div>
           ) : (
-            <button onClick={handleLogin} className="bg-slate-900 text-white px-6 py-2 rounded-full text-xs font-bold hover:bg-indigo-600 transition-all">Login</button>
+            <button onClick={() => actions.navigateTo('login')} className="bg-slate-900 text-white px-6 py-2 rounded-full text-xs font-bold">Login</button>
           )}
         </div>
       </nav>
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+        {state.view === 'login' && (
+          <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-3xl mx-auto flex items-center justify-center"><Lock size={32}/></div>
+              <h1 className="text-3xl font-black">Welcome Back</h1>
+              <p className="text-slate-500 text-sm">Secure access to your curated tech gear.</p>
+            </div>
+            <form onSubmit={handleEmailLogin} className="space-y-4">
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                <input name="email" type="email" placeholder="Email Address" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                <input name="password" type="password" placeholder="Password" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Sign In</button>
+            </form>
+            <div className="relative py-4 text-center">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t"></div></div>
+              <span className="relative px-4 bg-white text-slate-400 text-xs font-bold uppercase">or</span>
+            </div>
+            <button onClick={handleGoogleLogin} className="w-full bg-white border-2 border-slate-100 text-slate-700 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-slate-50 transition-colors">
+              <img src="https://www.google.com/favicon.ico" className="w-4 h-4" /> Continue with Google
+            </button>
+            <p className="text-center text-sm text-slate-500">New here? <button onClick={() => actions.navigateTo('register')} className="text-indigo-600 font-bold hover:underline">Create Account</button></p>
+          </div>
+        )}
+
+        {state.view === 'register' && (
+          <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="text-center space-y-2">
+              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-3xl mx-auto flex items-center justify-center"><Plus size={32}/></div>
+              <h1 className="text-3xl font-black">Create Account</h1>
+              <p className="text-slate-500 text-sm">Join the world's first AI-powered marketplace.</p>
+            </div>
+            <form onSubmit={handleEmailRegister} className="space-y-4">
+              <div className="relative">
+                <UserIconSmall className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                <input name="name" type="text" placeholder="Full Name" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                <input name="email" type="email" placeholder="Email Address" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                <input name="password" type="password" placeholder="Password" required className="w-full bg-slate-100 border-none rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20" />
+              </div>
+              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Register</button>
+            </form>
+            <p className="text-center text-sm text-slate-500">Already have an account? <button onClick={() => actions.navigateTo('login')} className="text-indigo-600 font-bold hover:underline">Sign In</button></p>
+          </div>
+        )}
+
+        {state.view === 'verify-email' && (
+          <div className="max-w-md mx-auto bg-white p-8 rounded-[40px] border shadow-2xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="text-center space-y-2">
+              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-3xl mx-auto flex items-center justify-center"><CheckCircle size={32}/></div>
+              <h1 className="text-3xl font-black">Verify Email</h1>
+              <p className="text-slate-500 text-sm">Enter the code sent to your simulated inbox above.</p>
+            </div>
+            <form onSubmit={handleVerify} className="space-y-4">
+              <input name="token" type="text" placeholder="Enter Token" required className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 text-center text-lg font-mono tracking-widest focus:ring-2 focus:ring-indigo-500/20" />
+              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-colors">Verify Account</button>
+            </form>
+            <button onClick={() => actions.navigateTo('login')} className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-indigo-600 transition-colors">
+              <ArrowLeft size={14}/> Back to Login
+            </button>
+          </div>
+        )}
+
         {state.view === 'home' && (
           <div className="space-y-12">
             <div className="relative h-96 rounded-[40px] overflow-hidden group">
@@ -282,47 +424,18 @@ const App: React.FC = () => {
                 <p className="text-slate-300 text-lg max-w-md mb-8">Premium electronics delivered with the world's first AI shopping assistant.</p>
                 <div className="flex gap-4">
                   <button onClick={() => actions.navigateTo('search')} className="bg-white text-slate-900 px-8 py-4 rounded-2xl font-bold hover:scale-105 transition-transform">Shop Collections</button>
-                  <button onClick={() => alert("Nex is ready! Click the bot icon below.")} className="bg-slate-900/50 backdrop-blur-md text-white border border-white/20 px-8 py-4 rounded-2xl font-bold hover:bg-white hover:text-slate-900 transition-all">Talk to Nex</button>
                 </div>
               </div>
             </div>
-
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold flex items-center gap-2"><Sparkles className="text-indigo-500" /> AI Recommendations</h2>
-              <div className="flex gap-2">
-                {['All', 'Electronics', 'Gaming', 'Audio'].map(c => (
-                  <button key={c} onClick={() => actions.search('', c === 'All' ? undefined : c as Category)} className="px-5 py-2 rounded-full border text-sm font-semibold hover:bg-white hover:shadow-md transition-all">
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               {filteredProducts.map(p => <ProductCard key={p.id} product={p} onAdd={actions.addToCart} onClick={actions.viewProduct} onCompare={actions.compareProduct} />)}
             </div>
           </div>
         )}
 
-        {state.view === 'checkout-success' && (
-           <div className="max-w-xl mx-auto py-20 text-center space-y-8 animate-in zoom-in-95 duration-500">
-             <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full mx-auto flex items-center justify-center">
-               <CheckCircle size={48} />
-             </div>
-             <div className="space-y-4">
-               <h1 className="text-4xl font-black">Purchase Successful!</h1>
-               <p className="text-slate-500">Your curated tech gear is on its way. Sellers have been notified and Nex is tracking your delivery.</p>
-             </div>
-             <div className="flex gap-4 justify-center">
-               <button onClick={() => actions.navigateTo('orders')} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold">Track Order</button>
-               <button onClick={() => actions.navigateTo('home')} className="bg-slate-100 text-slate-900 px-8 py-3 rounded-2xl font-bold">Back Home</button>
-             </div>
-           </div>
-        )}
-
         {state.view === 'search' && (
           <div className="space-y-8">
-             <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold">Search Results</h1>
               <p className="text-slate-500">{filteredProducts.length} items found</p>
             </div>
@@ -333,162 +446,105 @@ const App: React.FC = () => {
         )}
 
         {state.view === 'product-detail' && selectedProduct && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="space-y-6">
-              <div className="aspect-square rounded-[40px] overflow-hidden bg-white shadow-xl">
-                <img src={selectedProduct.image} className="w-full h-full object-cover" />
-              </div>
-            </div>
-            <div className="space-y-8 py-4">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase px-3 py-1 rounded-full">{selectedProduct.category}</span>
-                  <div className="flex items-center gap-1 text-yellow-500 text-xs font-bold">
-                    <Star size={14} fill="currentColor" /> {selectedProduct.rating} (24 Reviews)
-                  </div>
-                </div>
-                <h1 className="text-5xl font-black text-slate-900 leading-tight">{selectedProduct.name}</h1>
-                <p className="text-slate-500 text-lg leading-relaxed">{selectedProduct.description}</p>
-                <div className="text-4xl font-bold text-indigo-600">${selectedProduct.price}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <button onClick={() => actions.addToCart(selectedProduct.id)} className="bg-slate-900 text-white py-5 rounded-3xl font-bold text-lg hover:bg-indigo-600 transition-all flex items-center justify-center gap-3">
-                  <ShoppingCart size={24} /> Add to Cart
-                </button>
-                <button onClick={() => actions.compareProduct(selectedProduct.id)} className="bg-white border-2 border-slate-900 py-5 rounded-3xl font-bold text-lg hover:bg-slate-50 transition-all flex items-center justify-center gap-3">
-                  <Scale size={24} /> Compare
-                </button>
-              </div>
-
-              <div className="border-t pt-8 space-y-6">
-                <h3 className="text-xl font-bold flex items-center gap-2"><ClipboardList size={20} /> Specifications</h3>
-                <div className="grid grid-cols-2 gap-y-4 text-sm">
-                  {selectedProduct.specs.map(s => <div key={s} className="flex items-center gap-3 text-slate-600 font-medium"><CheckCircle size={16} className="text-indigo-500" /> {s}</div>)}
-                </div>
-              </div>
-            </div>
-          </div>
+           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 animate-in fade-in duration-500">
+             <div className="aspect-square rounded-[40px] overflow-hidden bg-white shadow-xl">
+               <img src={selectedProduct.image} className="w-full h-full object-cover" />
+             </div>
+             <div className="space-y-8 py-4">
+               <div className="space-y-4">
+                 <h1 className="text-5xl font-black text-slate-900 leading-tight">{selectedProduct.name}</h1>
+                 <p className="text-slate-500 text-lg leading-relaxed">{selectedProduct.description}</p>
+                 <div className="text-4xl font-bold text-indigo-600">${selectedProduct.price}</div>
+               </div>
+               <button onClick={() => actions.addToCart(selectedProduct.id)} className="w-full bg-slate-900 text-white py-5 rounded-3xl font-bold text-lg hover:bg-indigo-600 transition-all flex items-center justify-center gap-3">
+                 <ShoppingCart size={24} /> Add to Cart
+               </button>
+             </div>
+           </div>
         )}
 
         {state.view === 'cart' && (
-          <div className="max-w-3xl mx-auto space-y-8">
-            <h1 className="text-3xl font-bold">Your Cart</h1>
-            {state.cart.length === 0 ? <p className="text-slate-400">Your cart is empty. Start exploring our collections!</p> : (
-              <div className="bg-white border rounded-[40px] p-8 space-y-6 shadow-sm">
-                {state.cart.map(item => (
-                  <div key={item.product.id} className="flex justify-between items-center border-b pb-4">
-                    <div className="flex items-center gap-4">
-                      <img src={item.product.image} className="w-16 h-16 rounded-xl object-cover" />
-                      <div>
-                        <div className="font-bold">{item.product.name}</div>
-                        <div className="text-xs text-slate-400">Qty: {item.quantity} • Sold by: {item.product.seller_name}</div>
-                      </div>
-                    </div>
-                    <div className="font-bold text-lg">${(item.product.price * item.quantity).toFixed(2)}</div>
-                  </div>
-                ))}
-                <div className="flex justify-between text-2xl font-bold pt-4">
-                  <span>Total</span>
-                  <span>${cartTotal.toFixed(2)}</span>
-                </div>
-                <button onClick={handleCheckout} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all">
-                  Checkout
-                </button>
-              </div>
-            )}
-          </div>
+           <div className="max-w-3xl mx-auto space-y-8">
+             <h1 className="text-3xl font-bold">Your Cart</h1>
+             {state.cart.length === 0 ? <p className="text-slate-400 text-center py-10 italic">Empty cart. Start adding premium tech to see it here.</p> : (
+               <div className="bg-white border rounded-[40px] p-8 space-y-6 shadow-sm">
+                 {state.cart.map(item => (
+                   <div key={item.product.id} className="flex justify-between items-center border-b pb-4">
+                     <div className="flex items-center gap-4">
+                       <img src={item.product.image} className="w-16 h-16 rounded-xl object-cover" />
+                       <div className="font-bold">{item.product.name} (x{item.quantity})</div>
+                     </div>
+                     <div className="font-bold">${(item.product.price * item.quantity).toFixed(2)}</div>
+                   </div>
+                 ))}
+                 <button onClick={actions.checkout} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold">Checkout</button>
+               </div>
+             )}
+           </div>
+        )}
+
+        {state.view === 'checkout-success' && (
+           <div className="max-w-xl mx-auto py-20 text-center space-y-8 animate-in zoom-in-95 duration-500">
+             <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full mx-auto flex items-center justify-center">
+               <CheckCircle size={48} />
+             </div>
+             <div className="space-y-4">
+               <h1 className="text-4xl font-black">Order Placed!</h1>
+               <p className="text-slate-500">Your curated tech gear is on its way. Sellers have been notified and Nex is tracking your delivery.</p>
+             </div>
+             <div className="flex gap-4 justify-center">
+               <button onClick={() => actions.navigateTo('orders')} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold">Track Order</button>
+               <button onClick={() => actions.navigateTo('home')} className="bg-slate-100 text-slate-900 px-8 py-3 rounded-2xl font-bold">Back Home</button>
+             </div>
+           </div>
         )}
 
         {state.view === 'orders' && (
            <div className="max-w-4xl mx-auto space-y-8">
             <h1 className="text-4xl font-black">My Orders</h1>
-            {orders.length === 0 ? <p className="text-slate-400">No active or past orders found.</p> : (
-              <div className="space-y-6">
-                {orders.map(order => (
-                  <div key={order.id} className="bg-white border rounded-[32px] p-6 shadow-sm overflow-hidden relative">
-                    <div className="flex justify-between items-start border-b pb-4 mb-4">
-                      <div>
-                        <div className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Order ID</div>
-                        <div className="font-mono text-sm">#{order.id.slice(0,8).toUpperCase()}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Placed On</div>
-                        <div className="text-sm font-bold">{new Date(order.date).toLocaleDateString()}</div>
-                      </div>
+            {orders.length === 0 ? <p className="text-slate-400 text-center py-10">No orders found yet.</p> : (
+              <div className="space-y-4">
+                {orders.map(o => (
+                  <div key={o.id} className="bg-white p-6 rounded-3xl border shadow-sm">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-mono text-xs text-slate-400">#{o.id.toUpperCase()}</span>
+                      <span className="text-xs font-bold bg-blue-100 text-blue-600 px-3 py-1 rounded-full">{o.status}</span>
                     </div>
-                    <div className="space-y-4">
-                      {order.items.map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-center">
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-slate-50 rounded-xl border flex items-center justify-center"><Package size={20} className="text-indigo-400" /></div>
-                            <div>
-                              <div className="font-bold text-sm">{item.product_name}</div>
-                              <div className="text-[10px] text-slate-400 uppercase tracking-widest">Seller: {item.seller_id}</div>
-                            </div>
-                          </div>
-                          <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${order.status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                            {order.status}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="flex justify-between font-bold">
+                       <span>{o.items.length} items</span>
+                       <span>${o.total.toFixed(2)}</span>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+           </div>
         )}
 
         {state.view === 'profile' && state.user && (
-          <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12 animate-in fade-in duration-500">
-            <div className="space-y-6">
-               <div className="bg-white p-8 rounded-[40px] border shadow-sm text-center space-y-4">
-                 <div className="w-24 h-24 bg-indigo-600 rounded-full mx-auto flex items-center justify-center text-white text-4xl font-black">{state.user.name.charAt(0)}</div>
-                 <div>
-                   <h2 className="text-xl font-bold">{state.user.name}</h2>
-                   <p className="text-slate-400 text-sm uppercase font-bold tracking-widest">{state.user.role}</p>
-                 </div>
-                 <button onClick={() => actions.navigateTo('orders')} className="w-full bg-slate-100 py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2"><Package size={16}/> View Orders</button>
-               </div>
-            </div>
-            <div className="md:col-span-2 bg-white p-12 rounded-[40px] border shadow-sm space-y-8">
-              <h1 className="text-3xl font-black">Profile Management</h1>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="col-span-2">
-                  <label className="text-[10px] font-bold uppercase text-slate-400 mb-2 block">Shipping Address</label>
-                  <textarea defaultValue={state.user.address} onChange={e => actions.updateProfile({ address: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm h-28 focus:ring-2 focus:ring-indigo-500/10" placeholder="Enter full address..."/>
+           <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-500">
+             <h1 className="text-4xl font-black">Your Profile</h1>
+             <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-6">
+                <div className="flex items-center gap-4">
+                   <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center text-white text-3xl font-black">{state.user.name.charAt(0)}</div>
+                   <div>
+                      <h2 className="text-xl font-bold">{state.user.name}</h2>
+                      <p className="text-slate-400">{state.user.email}</p>
+                   </div>
                 </div>
-                <div className="col-span-2 pt-4 border-t">
-                  <h3 className="font-bold flex items-center gap-2 text-indigo-600"><CreditCard size={18} /> Financial Details</h3>
+                <div className="pt-6 border-t space-y-4">
+                   <div>
+                      <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Shipping Address</label>
+                      <textarea 
+                        defaultValue={state.user.address} 
+                        onChange={(e) => actions.updateProfile({ address: e.target.value })}
+                        className="w-full bg-slate-100 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500/20" 
+                        placeholder="Update your address..."
+                      />
+                   </div>
                 </div>
-                <div className="col-span-2">
-                  <input type="text" placeholder="Card Number" defaultValue={state.user.cardNumber} onChange={e => actions.updateProfile({ cardNumber: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm" />
-                </div>
-                <input type="text" placeholder="MM/YY" defaultValue={state.user.cardExpiry} onChange={e => actions.updateProfile({ cardExpiry: e.target.value })} className="bg-slate-50 border-none rounded-2xl p-4 text-sm" />
-                <input type="text" placeholder="CVV" defaultValue={state.user.cardCvv} onChange={e => actions.updateProfile({ cardCvv: e.target.value })} className="bg-slate-50 border-none rounded-2xl p-4 text-sm" />
-              </div>
-              <p className="text-[10px] text-slate-400">Data is securely cached. NexShop uses bank-grade simulated encryption.</p>
-            </div>
-          </div>
-        )}
-
-        {state.view === 'seller-dashboard' && (
-          <div className="space-y-8">
-            <div className="flex justify-between items-center">
-              <h1 className="text-3xl font-bold">Seller Central</h1>
-              <div className="flex bg-slate-200 p-1 rounded-xl">
-                {['analytics', 'orders'].map(t => (
-                  <button key={t} onClick={() => setSellerTab(t as any)} className={`px-4 py-2 rounded-lg text-sm font-bold capitalize ${sellerTab === t ? 'bg-white shadow' : 'text-slate-500'}`}>{t}</button>
-                ))}
-              </div>
-            </div>
-            <div className="bg-white p-12 rounded-[40px] border text-center text-slate-500">
-               <Store size={48} className="mx-auto mb-4 opacity-20" />
-               <p className="font-bold">No active seller orders to display.</p>
-               <p className="text-sm mt-2">Try adding a product or waiting for buyers to purchase your items.</p>
-            </div>
-          </div>
+             </div>
+           </div>
         )}
       </main>
 
@@ -513,20 +569,11 @@ const ProductCard: React.FC<{ product: Product; onClick: (id: string) => void; o
       <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-indigo-600 uppercase tracking-widest border shadow-sm">
         {product.seller_name}
       </div>
-      <button 
-        onClick={(e) => { e.stopPropagation(); onCompare(product.id); }}
-        className="absolute top-3 right-3 p-2 bg-white/90 backdrop-blur-md rounded-full text-slate-400 hover:text-indigo-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <Scale size={14} />
-      </button>
     </div>
     <div className="space-y-1.5 px-1">
       <div className="flex justify-between items-start gap-2">
         <h3 className="font-bold text-base leading-tight line-clamp-1 group-hover:text-indigo-600 transition-colors">{product.name}</h3>
         <span className="text-indigo-600 font-black text-sm">${product.price}</span>
-      </div>
-      <div className="flex items-center gap-1.5 text-yellow-500 text-[10px] font-black uppercase">
-        <Star size={10} fill="currentColor" /> {product.rating} <span className="text-slate-300 ml-1">• (12)</span>
       </div>
     </div>
     <button 
