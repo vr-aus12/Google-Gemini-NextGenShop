@@ -54,6 +54,7 @@ export const runFunctionalTests = async (
   // 3. UI: Navigation Logic
   try {
     actions.navigateTo('profile' as AppView);
+    actions.navigateTo('orders' as AppView); // Added 'orders' to navigation test
     actions.navigateTo('home' as AppView);
     // Return to admin to continue seeing results
     actions.navigateTo('admin' as AppView);
@@ -103,13 +104,28 @@ export const runFunctionalTests = async (
   // 9. Checkout: Order Flow
   try {
     const cartToCheckout = await api.getCart(testUserId);
-    await api.checkout(testUserId, '123 AI Lane', 'Visa 4242', cartToCheckout);
+    if (cartToCheckout.length === 0) {
+      await api.addToCart(testUserId, '1', 1);
+    }
+    const finalCart = await api.getCart(testUserId);
+    const order = await api.checkout(testUserId, '123 AI Lane', 'Visa 4242', finalCart);
+    
+    // Verification: Ensure order appears in user's history
+    const myOrders = await api.getMyOrders(testUserId);
+    const orderInHistory = myOrders.some(o => o.id === order.id);
+    
     await api.clearCart(testUserId);
-    // Return to admin after checkout success page
+    // Return to admin after checkout success page simulation
     actions.navigateTo('admin' as AppView);
-    const cart = await api.getCart(testUserId);
-    if (cart.length === 0) updateTest(8, 'passed');
-    else throw new Error('Cart not cleared after checkout');
+    const cartAfter = await api.getCart(testUserId);
+    
+    if (orderInHistory && cartAfter.length === 0) {
+      updateTest(8, 'passed');
+    } else if (!orderInHistory) {
+      throw new Error('Order not found in history after checkout');
+    } else {
+      throw new Error('Cart not cleared after checkout');
+    }
   } catch (e: any) { updateTest(8, 'failed', e.message); }
 
   // 10. Security: Verification Lock
