@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, RefreshCcw, Edit, CreditCard, ShieldCheck, Truck, Sparkles, MapPin, Package, Clock, ShieldAlert, Lock, ArrowLeft, BellRing, BrainCircuit, Wand2, Globe, Users, DollarSign, TrendingUp, Activity, PackageOpen, ChevronDown, Trash2, Presentation as PresentationIcon, HeartPulse, MessageSquareMore, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, RefreshCcw, Edit, CreditCard, ShieldCheck, Truck, Sparkles, MapPin, Package, Clock, ShieldAlert, Lock, ArrowLeft, BellRing, BrainCircuit, Wand2, Globe, Users, DollarSign, TrendingUp, Activity, PackageOpen, ChevronDown, Trash2, Presentation as PresentationIcon, HeartPulse, MessageSquareMore, AlertCircle, ShoppingBag } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review, ChatSentiment } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
@@ -23,6 +23,9 @@ const App: React.FC = () => {
   const [healthResults, setHealthResults] = useState<TestResult[]>([]);
   const [isTesting, setIsTesting] = useState(false);
   const [notification, setNotification] = useState<{ message: string; sub: string; icon: any; type?: 'info' | 'error' | 'success' } | null>(null);
+  
+  // Use number type for window.setTimeout return value in browser environment
+  const notifyTimeoutRef = useRef<number | null>(null);
 
   const [state, setState] = useState<MarketplaceState>(() => {
     const savedUser = localStorage.getItem('nexshop_user');
@@ -39,8 +42,11 @@ const App: React.FC = () => {
   });
 
   const showNotify = (message: string, sub: string, icon: any = BellRing, type: 'info' | 'error' | 'success' = 'info') => {
+    if (notifyTimeoutRef.current) clearTimeout(notifyTimeoutRef.current);
     setNotification({ message, sub, icon, type });
-    if (type !== 'error') setTimeout(() => setNotification(null), 5000);
+    if (type !== 'error') {
+      notifyTimeoutRef.current = window.setTimeout(() => setNotification(null), 5000);
+    }
   };
 
   const refreshData = async () => {
@@ -91,7 +97,18 @@ const App: React.FC = () => {
   }, [products, state.selectedProductId]);
 
   const actions = {
-    search: (query: string, category?: Category) => setState(prev => ({ ...prev, view: 'search', searchQuery: query, activeFilters: { ...prev.activeFilters, category: category || null } })),
+    search: (query: string, category?: Category, min?: number, max?: number) => {
+        setState(prev => ({ 
+            ...prev, 
+            view: 'search', 
+            searchQuery: query, 
+            activeFilters: { 
+                category: category || null, 
+                minPrice: min || null, 
+                maxPrice: max || null 
+            } 
+        }));
+    },
     addToCart: async (id: string, qty: number = 1) => {
       if (!state.user) { actions.navigateTo('login'); return; }
       const prod = products.find(p => p.id === id || p.name.toLowerCase().includes(id.toLowerCase()));
@@ -124,7 +141,6 @@ const App: React.FC = () => {
         setIsProcessingPayment(false);
       }
     },
-    // Required for testRunner
     addProduct: async (p: any) => console.log('Mock Add Product', p),
     updateProfile: async (p: any) => {
        if (state.user) await api.updateProfile(state.user.id, p);
@@ -167,7 +183,7 @@ const App: React.FC = () => {
       {state.view === 'presentation' && <Presentation onClose={() => actions.navigateTo('home')} />}
 
       {notification && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-w-sm p-4 rounded-3xl shadow-2xl flex items-center gap-4 bg-slate-900 text-white border border-white/10 animate-in slide-in-from-top-4">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-sm p-4 rounded-3xl shadow-2xl flex items-center gap-4 bg-slate-900 text-white border border-white/10 animate-in slide-in-from-top-4">
           <notification.icon size={20} className="text-indigo-400" />
           <div className="flex-1">
             <h4 className="font-bold text-xs">{notification.message}</h4>
@@ -196,6 +212,7 @@ const App: React.FC = () => {
           <button onClick={() => actions.navigateTo('search')} className={`text-xs font-bold transition-colors ${state.view === 'search' ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800'}`}>Search</button>
           <button onClick={() => actions.navigateTo('presentation')} className={`text-xs font-bold transition-colors ${state.view === 'presentation' ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800'} flex items-center gap-1.5`}>Showcase <Sparkles size={12}/></button>
           {state.user?.role === 'admin' && <button onClick={() => actions.navigateTo('admin')} className={`text-xs font-bold transition-colors ${state.view === 'admin' ? 'text-indigo-600' : 'text-indigo-400'}`}>Admin HQ</button>}
+          {state.user && <button onClick={() => actions.navigateTo('orders')} className={`text-xs font-bold transition-colors ${state.view === 'orders' ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800'}`}>My Orders</button>}
           {state.user ? (
             <div className="flex items-center gap-3">
               <button onClick={() => actions.navigateTo('profile')} className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center font-bold text-xs text-indigo-600 hover:bg-indigo-200 transition-colors">{state.user.name.charAt(0)}</button>
@@ -409,6 +426,56 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {state.view === 'orders' && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-500">
+             <div className="flex justify-between items-end">
+               <h1 className="text-5xl font-black tracking-tight text-slate-900">Purchase History</h1>
+               <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{orders.length} Total Orders</p>
+             </div>
+             <div className="space-y-6">
+                {orders.length > 0 ? orders.map(o => (
+                  <div key={o.id} className="bg-white border rounded-[40px] p-8 hover:shadow-xl transition-all group">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                          <Package size={24} />
+                        </div>
+                        <div>
+                          <h3 className="font-black text-slate-900">Order #{o.id.split('-')[1]}</h3>
+                          <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{new Date(o.date).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-amber-50 text-amber-600 border border-amber-100">{o.status}</span>
+                        <p className="text-2xl font-black text-slate-900">${o.total.toFixed(2)}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-4 pt-6 border-t border-slate-100">
+                      {o.items.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-2xl border">
+                          <img src={item.product.image} className="w-8 h-8 rounded-lg object-cover" />
+                          <p className="text-[10px] font-bold text-slate-600 truncate max-w-[100px]">{item.product.name}</p>
+                          <span className="text-[8px] font-black bg-white px-2 py-0.5 rounded-md border text-slate-400">x{item.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )) : (
+                  <div className="py-32 text-center bg-white border-2 border-dashed border-slate-200 rounded-[64px] space-y-6">
+                    <div className="w-24 h-24 bg-slate-50 rounded-full mx-auto flex items-center justify-center">
+                        <ShoppingBag className="text-slate-300" size={48}/>
+                    </div>
+                    <div className="space-y-1">
+                        <p className="text-slate-900 font-black text-xl">No orders found.</p>
+                        <p className="text-slate-400 text-sm">Looks like you haven't made any purchases yet.</p>
+                    </div>
+                    <button onClick={() => actions.navigateTo('home')} className="bg-slate-900 text-white px-10 py-4 rounded-3xl font-bold uppercase text-xs tracking-widest hover:bg-indigo-600 transition-all">Explore Marketplace</button>
+                  </div>
+                )}
+             </div>
+          </div>
+        )}
+
         {state.view === 'home' && (
           <div className="space-y-12 animate-in fade-in duration-700">
             <div className="relative h-[480px] rounded-[64px] overflow-hidden shadow-2xl group">
@@ -571,7 +638,7 @@ const App: React.FC = () => {
              </div>
              <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <button onClick={() => actions.navigateTo('home')} className="bg-slate-900 text-white px-10 py-5 rounded-3xl font-black shadow-xl hover:bg-indigo-600 transition-all">Continue Shopping</button>
-                <button onClick={() => actions.navigateTo('home')} className="bg-white border-2 border-slate-100 text-slate-600 px-10 py-5 rounded-3xl font-black hover:border-slate-300 transition-all">Track My Order</button>
+                <button onClick={() => actions.navigateTo('orders')} className="bg-white border-2 border-slate-100 text-slate-600 px-10 py-5 rounded-3xl font-black hover:border-slate-300 transition-all">Track My Order</button>
              </div>
           </div>
         )}

@@ -42,7 +42,7 @@ function encode(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
+async function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
@@ -67,7 +67,7 @@ function createBlob(data: Float32Array): Blob {
 
 const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user, currentView, selectedProductId, searchQuery, sellerTab }) => {
   const [isOpen, setIsOpen] = useState(true);
-  const [isLive, setIsLive] = useState(true); // Default to Voice Mode
+  const [isLive, setIsLive] = useState(true); 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
@@ -85,6 +85,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const micStreamRef = useRef<MediaStream | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
   const actionsRef = useRef(actions);
   useEffect(() => { actionsRef.current = actions; }, [actions]);
@@ -99,7 +100,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
       startLiveSession();
     }
     return () => {
-      if (!isLive) stopLiveSession();
+      stopLiveSession();
     };
   }, [isOpen, isLive]);
 
@@ -113,11 +114,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
   const executeToolCall = async (fc: any) => {
     const act = actionsRef.current;
     try {
-      if (fc.name === 'searchProducts') act.search(fc.args.query, fc.args.category);
+      if (fc.name === 'searchProducts') act.search(fc.args.query, fc.args.category, fc.args.minPrice, fc.args.maxPrice);
       else if (fc.name === 'addToCart') act.addToCart(fc.args.productId, fc.args.quantity);
       else if (fc.name === 'viewProduct') act.viewProduct(fc.args.productId);
       else if (fc.name === 'navigateTo') act.navigateTo(fc.args.view as AppView);
-      return { status: "success" };
+      return { status: "success", tool: fc.name };
     } catch (err) { 
       return { status: "error", error: String(err) }; 
     }
@@ -131,6 +132,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
+      // Resume contexts to bypass browser gesture policies
+      await inputAudioContextRef.current.resume();
+      await outputAudioContextRef.current.resume();
+      
       micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       setIsLive(true);
       
@@ -140,10 +145,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
           onopen: () => {
             const source = inputAudioContextRef.current!.createMediaStreamSource(micStreamRef.current!);
             const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
+            scriptProcessorRef.current = scriptProcessor;
+
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createBlob(inputData);
-              sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
+              sessionPromise.then(session => {
+                try {
+                  session.sendRealtimeInput({ media: pcmBlob });
+                } catch (err) {
+                  console.debug("Session likely closing, skipping audio send.");
+                }
+              });
             };
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputAudioContextRef.current!.destination);
@@ -153,7 +166,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
             if (base64Audio && outputAudioContextRef.current) {
               const ctx = outputAudioContextRef.current;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-              const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
+              const audioBuffer = await pcmToAudioBuffer(decode(base64Audio), ctx, 24000, 1);
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(ctx.destination);
@@ -164,7 +177,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
             }
 
             if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(s => s.stop());
+              sourcesRef.current.forEach(s => {
+                  try { s.stop(); s.disconnect(); } catch(e) {}
+              });
               sourcesRef.current.clear();
               nextStartTimeRef.current = 0;
             }
@@ -177,18 +192,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
             if (message.toolCall) {
               for (const fc of message.toolCall.functionCalls) {
                 const result = await executeToolCall(fc);
-                sessionPromise.then(session => session.sendToolResponse({
-                  functionResponses: { id: fc.id, name: fc.name, response: result }
-                }));
-                setMessages(prev => [...prev, { role: 'bot', text: `Voice command: Executing ${fc.name}...`, tool: fc.name }]);
+                sessionPromise.then(session => {
+                  session.sendToolResponse({
+                    functionResponses: { id: fc.id, name: fc.name, response: { result: result } }
+                  });
+                });
+                setMessages(prev => [...prev, { role: 'bot', text: `Nex performing: ${fc.name}...`, tool: fc.name }]);
               }
             }
           },
           onerror: (e) => {
             console.error('Live API Error:', e);
-            setMicError("Voice session encountered an error.");
+            setMicError("Voice session encountered an error. Attempting restart...");
           },
-          onclose: () => stopLiveSession()
+          onclose: () => {
+             console.debug("Live Session Closed");
+             // Don't auto-stop if we're just cycling, but clear the ref
+             sessionPromiseRef.current = null;
+          }
         },
         config: {
           responseModalities: [Modality.AUDIO],
@@ -209,16 +230,44 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
   };
 
   const stopLiveSession = () => {
-    if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
-    if (inputAudioContextRef.current) inputAudioContextRef.current.close();
-    if (outputAudioContextRef.current) outputAudioContextRef.current.close();
-    sourcesRef.current.forEach(s => s.stop());
+    // 1. Close microphone stream
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+    }
+    
+    // 2. Disconnect Script Processor
+    if (scriptProcessorRef.current) {
+      scriptProcessorRef.current.onaudioprocess = null;
+      scriptProcessorRef.current.disconnect();
+      scriptProcessorRef.current = null;
+    }
+
+    // 3. Close Audio Contexts
+    if (inputAudioContextRef.current) {
+      inputAudioContextRef.current.close().catch(() => {});
+      inputAudioContextRef.current = null;
+    }
+    if (outputAudioContextRef.current) {
+      outputAudioContextRef.current.close().catch(() => {});
+      outputAudioContextRef.current = null;
+    }
+
+    // 4. Stop all pending audio sources
+    sourcesRef.current.forEach(s => {
+        try { s.stop(); s.disconnect(); } catch(e) {}
+    });
     sourcesRef.current.clear();
-    sessionPromiseRef.current?.then(s => s.close());
-    micStreamRef.current = null;
-    inputAudioContextRef.current = null;
-    outputAudioContextRef.current = null;
-    sessionPromiseRef.current = null;
+
+    // 5. Close Live Session
+    if (sessionPromiseRef.current) {
+      sessionPromiseRef.current.then(s => {
+        try { s.close(); } catch(e) {}
+      });
+      sessionPromiseRef.current = null;
+    }
+    
+    nextStartTimeRef.current = 0;
   };
 
   const toggleMode = () => {
@@ -228,6 +277,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
       setMessages(prev => [...prev, { role: 'bot', text: 'Switched to Text Chat mode.' }]);
     } else {
       setIsLive(true);
+      // Mode change effect will trigger startLiveSession via useEffect
       setMessages(prev => [...prev, { role: 'bot', text: 'Nex Voice Assistant activated.' }]);
     }
   };
@@ -297,7 +347,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
                 <div className="bg-indigo-600 text-white px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 text-[10px] font-black uppercase tracking-tighter border-2 border-indigo-400/50">
                   <AudioLines size={16} className="animate-pulse" /> Nex is Listening
                 </div>
-                {micError && <p className="text-[9px] text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100">{micError}</p>}
+                {micError && <p className="text-[9px] text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 text-center mx-4">{micError}</p>}
               </div>
             )}
             
@@ -340,7 +390,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
                   <Mic size={14} /> Restart Voice
                 </button>
               </div>
-              <p className="text-[9px] text-slate-400 font-medium">Nex uses the Gemini Live API for sub-second responses.</p>
+              <p className="text-[9px] text-slate-400 font-medium text-center">Nex uses the Gemini Live API for sub-second responses.</p>
             </div>
           )}
         </div>
