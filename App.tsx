@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, RefreshCcw, Edit, CreditCard, ShieldCheck, Truck, Sparkles, MapPin, Package, Clock, ShieldAlert, Lock, ArrowLeft, BellRing, BrainCircuit, Wand2, Globe, Users, DollarSign, TrendingUp, Activity, PackageOpen, ChevronDown, Trash2, Presentation as PresentationIcon, HeartPulse, MessageSquareMore, AlertCircle, ShoppingBag } from 'lucide-react';
+import { ShoppingCart, Search, Home, User as UserIcon, Star, Filter, ArrowRight, X, LogOut, Loader2, Store, CheckCircle, Plus, RefreshCcw, Edit, CreditCard, ShieldCheck, Truck, Sparkles, MapPin, Package, Clock, ShieldAlert, Lock, ArrowLeft, BellRing, BrainCircuit, Wand2, Globe, Users, DollarSign, TrendingUp, Activity, PackageOpen, ChevronDown, Trash2, Presentation as PresentationIcon, HeartPulse, MessageSquareMore, AlertCircle, ShoppingBag, Settings, BadgeCheck, Mail, MapPinned, ChevronRight } from 'lucide-react';
 import { MarketplaceState, AppView, Product, Category, CartItem, User, Order, Review, ChatSentiment } from './types';
 import { DUMMY_PRODUCTS } from './constants';
 import { api } from './services/api';
@@ -24,7 +24,6 @@ const App: React.FC = () => {
   const [isTesting, setIsTesting] = useState(false);
   const [notification, setNotification] = useState<{ message: string; sub: string; icon: any; type?: 'info' | 'error' | 'success' } | null>(null);
   
-  // Use number type for window.setTimeout return value in browser environment
   const notifyTimeoutRef = useRef<number | null>(null);
 
   const [state, setState] = useState<MarketplaceState>(() => {
@@ -56,19 +55,23 @@ const App: React.FC = () => {
       
       if (state.user) {
         const cart = await api.getCart(state.user.id);
-        setState(prev => ({ ...prev, cart }));
+        const updatedUser = await api.getUser(state.user.id);
+        
+        setState(prev => ({ 
+          ...prev, 
+          cart, 
+          user: { ...updatedUser, isLoggedIn: true } 
+        }));
         
         if (state.view === 'admin' || state.view === 'orders') {
           if (adminTab === 'orders' || state.view === 'orders') {
             const fetchedOrders = state.user.role === 'admin' ? await api.getAllOrders() : await api.getMyOrders(state.user.id);
             setOrders(fetchedOrders);
           }
-          
           if (adminTab === 'users') {
             const fetchedUsers = await api.getAllUsers();
             setAllUsers(fetchedUsers);
           }
-
           if (adminTab === 'sentiment') {
             const fetchedSentiments = await api.getAllSentiments();
             setSentiments(fetchedSentiments);
@@ -82,7 +85,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     refreshData();
-  }, [state.view, state.user?.id, adminTab]);
+  }, [state.view, adminTab]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -114,8 +117,7 @@ const App: React.FC = () => {
       const prod = products.find(p => p.id === id || p.name.toLowerCase().includes(id.toLowerCase()));
       if (prod) {
         await api.addToCart(state.user.id, prod.id, qty);
-        const newCart = await api.getCart(state.user.id);
-        setState(prev => ({ ...prev, cart: newCart }));
+        refreshData();
         showNotify("Added to Cart", `${prod.name} added.`, ShoppingCart, 'success');
       }
     },
@@ -143,7 +145,11 @@ const App: React.FC = () => {
     },
     addProduct: async (p: any) => console.log('Mock Add Product', p),
     updateProfile: async (p: any) => {
-       if (state.user) await api.updateProfile(state.user.id, p);
+       if (state.user) {
+         await api.updateProfile(state.user.id, p);
+         showNotify("Profile Updated", "Your information was saved.", ShieldCheck, "success");
+         refreshData();
+       }
     },
     setSellerTab: (t: any) => console.log('Mock setSellerTab', t)
   };
@@ -183,7 +189,7 @@ const App: React.FC = () => {
       {state.view === 'presentation' && <Presentation onClose={() => actions.navigateTo('home')} />}
 
       {notification && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-sm p-4 rounded-3xl shadow-2xl flex items-center gap-4 bg-slate-900 text-white border border-white/10 animate-in slide-in-from-top-4">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] w-[90%] max-w-sm p-4 rounded-3xl shadow-2xl flex items-center gap-4 bg-slate-900 text-white border border-white/10 animate-in slide-in-from-top-4">
           <notification.icon size={20} className="text-indigo-400" />
           <div className="flex-1">
             <h4 className="font-bold text-xs">{notification.message}</h4>
@@ -215,7 +221,7 @@ const App: React.FC = () => {
           {state.user && <button onClick={() => actions.navigateTo('orders')} className={`text-xs font-bold transition-colors ${state.view === 'orders' ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800'}`}>My Orders</button>}
           {state.user ? (
             <div className="flex items-center gap-3">
-              <button onClick={() => actions.navigateTo('profile')} className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center font-bold text-xs text-indigo-600 hover:bg-indigo-200 transition-colors">{state.user.name.charAt(0)}</button>
+              <button onClick={() => actions.navigateTo('profile')} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-all ${state.view === 'profile' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'}`}>{state.user.name.charAt(0)}</button>
               <button onClick={actions.logout} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><LogOut size={16}/></button>
             </div>
           ) : (
@@ -244,6 +250,102 @@ const App: React.FC = () => {
             <div className="text-center">
               <button onClick={() => actions.navigateTo('home')} className="text-slate-400 text-xs hover:text-indigo-600 underline underline-offset-4">Back to Market</button>
             </div>
+          </div>
+        )}
+
+        {state.view === 'profile' && state.user && (
+          <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div className="flex items-center gap-6">
+                   <div className="w-24 h-24 bg-indigo-900 rounded-[32px] flex items-center justify-center text-4xl text-white font-black shadow-2xl border-4 border-white">
+                      {state.user.name.charAt(0)}
+                   </div>
+                   <div>
+                      <h1 className="text-4xl font-black text-slate-900 tracking-tight">{state.user.name}</h1>
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1 border border-indigo-100">
+                           <BadgeCheck size={12}/> Verified {state.user.role}
+                        </span>
+                        <p className="text-slate-400 text-sm font-medium">{state.user.email}</p>
+                      </div>
+                   </div>
+                </div>
+                <button onClick={actions.logout} className="px-6 py-3 bg-white border-2 border-slate-100 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-red-500 hover:border-red-100 transition-all">Log Out Session</button>
+             </div>
+
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                <div className="lg:col-span-2 space-y-8">
+                   <div className="bg-white border rounded-[40px] p-10 space-y-8 shadow-sm">
+                      <div className="flex items-center gap-3 text-slate-900">
+                        <MapPinned className="text-indigo-600" size={24}/>
+                        <h3 className="font-black text-lg tracking-tight">Shipping Logistics</h3>
+                      </div>
+                      <div className="space-y-6">
+                         <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Primary Delivery Address</label>
+                            <textarea 
+                               defaultValue={state.user.address} 
+                               onBlur={(e) => actions.updateProfile({ address: e.target.value })}
+                               className="w-full bg-slate-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-indigo-500/10 transition-all h-32" 
+                               placeholder="Set your shipping destination..." 
+                            />
+                         </div>
+                         <div className="grid grid-cols-2 gap-4">
+                           <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100">
+                              <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Country</p>
+                              <p className="text-sm font-bold text-slate-900">United States</p>
+                           </div>
+                           <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100">
+                              <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Timezone</p>
+                              <p className="text-sm font-bold text-slate-900">UTC-08:00 (Pacific)</p>
+                           </div>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div className="bg-white border rounded-[40px] p-10 shadow-sm flex items-center justify-between group cursor-pointer hover:border-indigo-100 transition-colors">
+                      <div className="flex items-center gap-6">
+                        <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
+                          <CreditCard size={28}/>
+                        </div>
+                        <div>
+                          <h4 className="font-black text-slate-900">Payment Methods</h4>
+                          <p className="text-xs text-slate-400">Manage your secure payment vaults</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="text-slate-200 group-hover:text-indigo-600 transition-all" size={24}/>
+                   </div>
+                </div>
+
+                <div className="space-y-8">
+                   <div className="bg-slate-900 rounded-[40px] p-10 text-white space-y-6 shadow-2xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                      <h4 className="text-xl font-black tracking-tight relative z-10">Nex Platinum</h4>
+                      <p className="text-indigo-200 text-xs font-medium leading-relaxed relative z-10">As a NexShop Verified Member, you have early access to hardware drops and 24/7 priority Nex AI support.</p>
+                      <div className="pt-4 border-t border-white/10 flex items-center justify-between relative z-10">
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Status</span>
+                        <span className="text-xs font-black text-indigo-400">ACTIVE</span>
+                      </div>
+                   </div>
+
+                   <div className="bg-white border rounded-[40px] p-10 space-y-6 shadow-sm">
+                      <div className="flex items-center gap-3">
+                         <ShieldCheck className="text-indigo-600" size={20}/>
+                         <h4 className="font-black text-slate-900">Account Security</h4>
+                      </div>
+                      <div className="space-y-4">
+                         <button className="w-full flex justify-between items-center py-3 px-1 border-b text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors">
+                            Change Passphrase
+                            <ChevronRight size={14}/>
+                         </button>
+                         <button className="w-full flex justify-between items-center py-3 px-1 border-b text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors">
+                            Two-Factor Auth
+                            <span className="text-[8px] px-2 py-0.5 bg-slate-100 rounded text-slate-400">OFF</span>
+                         </button>
+                      </div>
+                   </div>
+                </div>
+             </div>
           </div>
         )}
 

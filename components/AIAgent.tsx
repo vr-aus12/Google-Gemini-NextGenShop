@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Sparkles, Mic, Send, Loader2, AudioLines, ChevronDown, BrainCircuit, Globe, X, MicOff, MessageSquareText, Radio } from 'lucide-react';
+import { Bot, Sparkles, Mic, Send, Loader2, AudioLines, ChevronDown, BrainCircuit, Globe, X, MicOff, MessageSquareText, Radio, Check, CircleX, Volume2, VolumeX } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Chat, Blob } from '@google/genai';
 import { marketplaceTools, createChatSession } from '../services/geminiService';
 import { Category, AppView, User, Product, GroundingSource } from '../types';
@@ -66,17 +66,18 @@ function createBlob(data: Float32Array): Blob {
 }
 
 const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user, currentView, selectedProductId, searchQuery, sellerTab }) => {
-  const [isOpen, setIsOpen] = useState(true);
-  const [isLive, setIsLive] = useState(true); 
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLive, setIsLive] = useState(false); 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const [messages, setMessages] = useState<{ role: 'user' | 'bot'; text: string; tool?: string; sources?: GroundingSource[] }[]>([
-    { role: 'bot', text: 'Nex Voice Assistant activated. I am listening...' }
-  ]);
+  const [isPendingOrder, setIsPendingOrder] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [messages, setMessages] = useState<{ role: 'user' | 'bot'; text: string; tool?: string; sources?: GroundingSource[]; isConfirmation?: boolean }[]>([]);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatSessionRef = useRef<Chat | null>(null);
+  const transcriptionRef = useRef({ input: '', output: '' });
   
   // Live API Refs
   const sessionPromiseRef = useRef<Promise<any> | null>(null);
@@ -86,30 +87,21 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const micStreamRef = useRef<MediaStream | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
   const actionsRef = useRef(actions);
   useEffect(() => { actionsRef.current = actions; }, [actions]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, isOpen, isLive]);
+  }, [messages, isOpen, isLive, isPendingOrder]);
 
-  // Handle auto-starting voice session
-  useEffect(() => {
-    if (isOpen && isLive && !micStreamRef.current) {
-      startLiveSession();
-    }
-    return () => {
-      stopLiveSession();
-    };
-  }, [isOpen, isLive]);
-
-  const getUIContext = () => {
+  const getUIContext = useCallback(() => {
     const selected = products.find(p => p.id === selectedProductId);
     const cartItems = currentCart.map(i => i.product.name).join(', ');
     const catalog = products.slice(0, 10).map(p => `${p.name} (ID: ${p.id})`).join(', ');
     return `View=${currentView}, UserRole=${user?.role || 'Guest'}, SelectedProd=${selected?.name || 'None'} (ID: ${selectedProductId || 'None'}), Cart=[${cartItems}], CatalogSample=[${catalog}]. Current Search="${searchQuery}".`;
-  };
+  }, [currentView, user, selectedProductId, currentCart, products, searchQuery]);
 
   const executeToolCall = async (fc: any) => {
     const act = actionsRef.current;
@@ -118,10 +110,33 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
       else if (fc.name === 'addToCart') act.addToCart(fc.args.productId, fc.args.quantity);
       else if (fc.name === 'viewProduct') act.viewProduct(fc.args.productId);
       else if (fc.name === 'navigateTo') act.navigateTo(fc.args.view as AppView);
+      else if (fc.name === 'placeOrder') {
+        if (currentCart.length === 0) {
+           return { status: "error", error: "Cart is empty." };
+        }
+        setIsPendingOrder(true);
+        setMessages(prev => [...prev, { role: 'bot', text: "Ready to complete your purchase. Should I place the order for you now?", isConfirmation: true }]);
+        return { status: "pending_confirmation", tool: fc.name };
+      }
       return { status: "success", tool: fc.name };
     } catch (err) { 
       return { status: "error", error: String(err) }; 
     }
+  };
+
+  const handleConfirmOrder = async () => {
+    setIsPendingOrder(false);
+    try {
+      await actionsRef.current.checkout();
+      setMessages(prev => [...prev, { role: 'bot', text: "Order placed successfully! Redirecting you to the status page." }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'bot', text: "Order failed. Please try again." }]);
+    }
+  };
+
+  const handleCancelOrder = () => {
+    setIsPendingOrder(false);
+    setMessages(prev => [...prev, { role: 'bot', text: "Order cancelled. Let me know if you need anything else!" }]);
   };
 
   const startLiveSession = async () => {
@@ -132,18 +147,32 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
-      // Resume contexts to bypass browser gesture policies
       await inputAudioContextRef.current.resume();
       await outputAudioContextRef.current.resume();
       
       micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       setIsLive(true);
+
+      analyserRef.current = inputAudioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 256;
+      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+      
+      const updateLevel = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        setAudioLevel(average);
+        if (isLive) requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
             const source = inputAudioContextRef.current!.createMediaStreamSource(micStreamRef.current!);
+            source.connect(analyserRef.current!);
+            
             const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
             scriptProcessorRef.current = scriptProcessor;
 
@@ -153,20 +182,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
               sessionPromise.then(session => {
                 try {
                   session.sendRealtimeInput({ media: pcmBlob });
-                } catch (err) {
-                  console.debug("Session likely closing, skipping audio send.");
-                }
+                } catch (err) { /* silent fail during close */ }
               });
             };
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputAudioContextRef.current!.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
-            const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            // Fix: Audio Output Handling - decoded from 'pcm' call to 'pcmToAudioBuffer'
+            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio && outputAudioContextRef.current) {
               const ctx = outputAudioContextRef.current;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-              const audioBuffer = await pcmToAudioBuffer(decode(base64Audio), ctx, 24000, 1);
+              const audioBuffer = await pcmToAudioBuffer(
+                decode(base64Audio),
+                ctx,
+                24000,
+                1
+              );
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(ctx.destination);
@@ -177,237 +210,212 @@ const AIAgent: React.FC<AIAgentProps> = ({ actions, currentCart, products, user,
             }
 
             if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(s => {
-                  try { s.stop(); s.disconnect(); } catch(e) {}
-              });
+              sourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
               sourcesRef.current.clear();
               nextStartTimeRef.current = 0;
             }
 
-            if (message.serverContent?.modelTurn?.parts[0]?.text) {
-              const text = message.serverContent.modelTurn.parts[0].text;
-              setMessages(prev => [...prev, { role: 'bot', text }]);
+            if (message.serverContent?.inputTranscription) {
+               transcriptionRef.current.input += message.serverContent.inputTranscription.text;
+            }
+            if (message.serverContent?.outputTranscription) {
+               transcriptionRef.current.output += message.serverContent.outputTranscription.text;
+            }
+            
+            if (message.serverContent?.turnComplete) {
+              if (transcriptionRef.current.input) {
+                setMessages(prev => [...prev, { role: 'user', text: transcriptionRef.current.input }]);
+              }
+              if (transcriptionRef.current.output) {
+                setMessages(prev => [...prev, { role: 'bot', text: transcriptionRef.current.output }]);
+              }
+              transcriptionRef.current = { input: '', output: '' };
             }
 
+            // Fix: Tool Call Handling according to guidelines
             if (message.toolCall) {
               for (const fc of message.toolCall.functionCalls) {
                 const result = await executeToolCall(fc);
                 sessionPromise.then(session => {
                   session.sendToolResponse({
-                    functionResponses: { id: fc.id, name: fc.name, response: { result: result } }
+                    functionResponses: {
+                      id: fc.id,
+                      name: fc.name,
+                      response: { result: result }
+                    }
                   });
                 });
-                setMessages(prev => [...prev, { role: 'bot', text: `Nex performing: ${fc.name}...`, tool: fc.name }]);
               }
             }
           },
           onerror: (e) => {
-            console.error('Live API Error:', e);
-            setMicError("Voice session encountered an error. Attempting restart...");
+            console.error("Live assistant error:", e);
+            setMicError("AI connection lost.");
+            stopLiveSession();
           },
           onclose: () => {
-             console.debug("Live Session Closed");
-             // Don't auto-stop if we're just cycling, but clear the ref
-             sessionPromiseRef.current = null;
+             setIsLive(false);
           }
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          systemInstruction: `You are Nex, the NexShop Voice Assistant. 
-          Use tools to navigate the app or add items to the cart. 
-          You are speaking directly to the user. Keep responses concise for audio.
-          CONTEXT: ${getUIContext()}`,
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+          },
+          systemInstruction: `You are Nex, the NexShop assistant. Context: ${getUIContext()}`,
           tools: [{ functionDeclarations: marketplaceTools }],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } }
+          inputAudioTranscription: {},
+          outputAudioTranscription: {}
         }
       });
       sessionPromiseRef.current = sessionPromise;
     } catch (err) {
-      console.error('Failed to start mic:', err);
-      setMicError("Could not access microphone. Please check permissions.");
-      setIsLive(false);
+      setMicError("Microphone access denied.");
+      console.error(err);
     }
   };
 
   const stopLiveSession = () => {
-    // 1. Close microphone stream
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(t => t.stop());
-      micStreamRef.current = null;
-    }
-    
-    // 2. Disconnect Script Processor
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.onaudioprocess = null;
-      scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current = null;
-    }
-
-    // 3. Close Audio Contexts
-    if (inputAudioContextRef.current) {
-      inputAudioContextRef.current.close().catch(() => {});
-      inputAudioContextRef.current = null;
-    }
-    if (outputAudioContextRef.current) {
-      outputAudioContextRef.current.close().catch(() => {});
-      outputAudioContextRef.current = null;
-    }
-
-    // 4. Stop all pending audio sources
-    sourcesRef.current.forEach(s => {
-        try { s.stop(); s.disconnect(); } catch(e) {}
-    });
-    sourcesRef.current.clear();
-
-    // 5. Close Live Session
-    if (sessionPromiseRef.current) {
-      sessionPromiseRef.current.then(s => {
-        try { s.close(); } catch(e) {}
-      });
-      sessionPromiseRef.current = null;
-    }
-    
-    nextStartTimeRef.current = 0;
+    setIsLive(false);
+    if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
+    if (scriptProcessorRef.current) scriptProcessorRef.current.disconnect();
+    if (inputAudioContextRef.current) inputAudioContextRef.current.close();
+    if (outputAudioContextRef.current) outputAudioContextRef.current.close();
+    sessionPromiseRef.current?.then(s => { try { s.close(); } catch(e) {} });
+    sessionPromiseRef.current = null;
   };
 
-  const toggleMode = () => {
-    if (isLive) {
-      stopLiveSession();
-      setIsLive(false);
-      setMessages(prev => [...prev, { role: 'bot', text: 'Switched to Text Chat mode.' }]);
-    } else {
-      setIsLive(true);
-      // Mode change effect will trigger startLiveSession via useEffect
-      setMessages(prev => [...prev, { role: 'bot', text: 'Nex Voice Assistant activated.' }]);
-    }
-  };
-
-  const handleSendMessage = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!input.trim() || isTyping) return;
+  const handleSend = async () => {
+    if (!input.trim()) return;
     const userText = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userText }]);
     setIsTyping(true);
+
     try {
-      if (!chatSessionRef.current) chatSessionRef.current = createChatSession(getUIContext());
+      if (!chatSessionRef.current) {
+        chatSessionRef.current = createChatSession(getUIContext());
+      }
       const response = await chatSessionRef.current.sendMessage({ message: userText });
       
-      let sources: GroundingSource[] = [];
-      if (response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
-        sources = response.candidates[0].groundingMetadata.groundingChunks
-          .map((chunk: any) => chunk.web ? { title: chunk.web.title, uri: chunk.web.uri } : null)
-          .filter(Boolean) as GroundingSource[];
-      }
-
       if (response.functionCalls) {
         for (const fc of response.functionCalls) {
           await executeToolCall(fc);
-          setMessages(prev => [...prev, { role: 'bot', text: `Operation complete: ${fc.name}`, tool: fc.name }]);
         }
       }
-      if (response.text) setMessages(prev => [...prev, { role: 'bot', text: response.text, sources: sources.length > 0 ? sources : undefined }]);
-    } catch (err) { 
-      setMessages(prev => [...prev, { role: 'bot', text: "Service error. Please try again." }]); 
+
+      setMessages(prev => [...prev, { 
+        role: 'bot', 
+        text: response.text || "I've updated the catalog based on your request.", 
+        sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => c.web).filter(Boolean)
+      }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'bot', text: "Sorry, I'm having trouble connecting to Nex services." }]);
+    } finally {
+      setIsTyping(false);
     }
-    finally { setIsTyping(false); }
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
-      {isOpen ? (
-        <div className="bg-white rounded-[32px] shadow-2xl overflow-hidden border flex flex-col w-[350px] h-[550px] pointer-events-auto animate-in slide-in-from-bottom-2 duration-300">
-          <div className="bg-slate-900 px-4 py-4 text-white flex items-center justify-between shadow-lg">
-            <div className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isLive ? 'bg-indigo-500 animate-pulse' : 'bg-slate-700'}`}>
-                {isLive ? <Radio size={16} /> : <Bot size={16} />}
-              </div>
-              <div className="flex flex-col">
-                <span className="font-bold text-xs">Nex Assistant</span>
-                <span className="text-[8px] uppercase tracking-widest text-indigo-400 font-black">
-                  {isLive ? 'Live Voice Mode' : 'Text Chat Mode'}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <button 
-                onClick={toggleMode} 
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${isLive ? 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-                title={isLive ? "Switch to Text" : "Switch to Voice"}
-              >
-                {isLive ? <><MessageSquareText size={12}/> Chat</> : <><Mic size={12}/> Voice</>}
-              </button>
-              <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-slate-800 rounded-xl text-slate-400"><ChevronDown size={18}/></button>
-            </div>
-          </div>
-          
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 relative">
-            {isLive && (
-              <div className="sticky top-0 z-10 flex flex-col items-center gap-2 mb-4">
-                <div className="bg-indigo-600 text-white px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 text-[10px] font-black uppercase tracking-tighter border-2 border-indigo-400/50">
-                  <AudioLines size={16} className="animate-pulse" /> Nex is Listening
-                </div>
-                {micError && <p className="text-[9px] text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 text-center mx-4">{micError}</p>}
-              </div>
-            )}
-            
-            {messages.map((m, i) => (
-              <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed ${m.role === 'user' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white border text-slate-700 shadow-sm'}`}>
-                  {m.text}
-                  {m.tool && <div className="mt-2 text-[8px] font-black text-indigo-500 uppercase flex items-center gap-1 border-t pt-1"><Sparkles size={10}/> {m.tool}</div>}
-                </div>
-                {m.sources && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {m.sources.map((s, si) => (
-                      <a key={si} href={s.uri} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-white border rounded-full text-[8px] font-bold text-slate-500 shadow-sm hover:border-indigo-200 transition-colors"><Globe size={8} className="inline mr-1"/>{s.title.slice(0, 15)}...</a>
-                    ))}
+    <div className={`fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4`}>
+       {isOpen && (
+         <div className="w-[400px] h-[600px] bg-white rounded-[40px] shadow-2xl border flex flex-col overflow-hidden animate-in slide-in-from-bottom-8 duration-500">
+            {/* AI Agent Header */}
+            <div className="bg-slate-900 p-6 text-white flex items-center justify-between">
+               <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center">
+                     <Bot size={24}/>
                   </div>
-                )}
-              </div>
-            ))}
-            {isTyping && <div className="px-2 animate-pulse"><Loader2 size={12} className="animate-spin text-indigo-600" /></div>}
-          </div>
-
-          {!isLive ? (
-            <form onSubmit={handleSendMessage} className="p-4 border-t bg-white flex gap-2">
-              <input 
-                type="text" 
-                value={input} 
-                onChange={e => setInput(e.target.value)} 
-                placeholder="Ask Nex anything..." 
-                className="flex-1 bg-slate-100 border-none rounded-2xl px-4 py-3 text-xs focus:ring-2 focus:ring-indigo-500/10 transition-all" 
-              />
-              <button disabled={!input.trim() || isTyping} className="p-3 bg-slate-900 text-white rounded-2xl shadow-lg hover:bg-indigo-600 transition-all disabled:opacity-30"><Send size={18}/></button>
-            </form>
-          ) : (
-            <div className="p-6 border-t bg-white flex flex-col items-center gap-3">
-              <div className="flex gap-4">
-                <button onClick={toggleMode} className="px-5 py-2.5 rounded-full bg-slate-100 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2">
-                  <MessageSquareText size={14} /> Switch to Chat
-                </button>
-                <button onClick={() => { stopLiveSession(); startLiveSession(); }} className="px-5 py-2.5 rounded-full bg-indigo-50 text-indigo-600 font-black text-[10px] uppercase tracking-widest hover:bg-indigo-100 transition-all flex items-center gap-2">
-                  <Mic size={14} /> Restart Voice
-                </button>
-              </div>
-              <p className="text-[9px] text-slate-400 font-medium text-center">Nex uses the Gemini Live API for sub-second responses.</p>
+                  <div>
+                    <h3 className="font-black text-sm">Nex Assistant</h3>
+                    <p className="text-[10px] opacity-60 flex items-center gap-1"><Radio size={10} className={isLive ? 'text-green-400 animate-pulse' : ''}/> {isLive ? 'Live Voice Active' : 'Text Assistant'}</p>
+                  </div>
+               </div>
+               <div className="flex items-center gap-2">
+                 <button onClick={() => isLive ? stopLiveSession() : startLiveSession()} className={`p-2 rounded-xl transition-colors ${isLive ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-white'}`}>
+                    {isLive ? <MicOff size={18}/> : <Mic size={18}/>}
+                 </button>
+                 <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><ChevronDown size={20}/></button>
+               </div>
             </div>
-          )}
-        </div>
-      ) : (
-        <button onClick={() => setIsOpen(true)} className="pointer-events-auto w-20 h-20 bg-slate-900 text-white rounded-[32px] shadow-3xl flex items-center justify-center hover:scale-110 transition-all hover:bg-indigo-600 group relative agent-pulse">
-          <div className="relative">
-             <BrainCircuit size={40} className="relative z-10" />
-             <div className="absolute inset-0 bg-indigo-400 blur-xl opacity-0 group-hover:opacity-40 transition-opacity"></div>
-          </div>
-          <span className="absolute -top-1 -right-1 w-6 h-6 bg-indigo-500 rounded-full border-4 border-slate-50 flex items-center justify-center">
-             <Radio size={10} className="animate-pulse" />
-          </span>
-          <div className="absolute right-full mr-4 bg-white px-4 py-2 rounded-2xl border shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-             <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Start Voice Search</p>
-          </div>
-        </button>
-      )}
+
+            {/* Chat Messages */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
+               {messages.length === 0 && (
+                 <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4">
+                    <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center shadow-sm border border-slate-100">
+                      <Sparkles className="text-indigo-600" size={24}/>
+                    </div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Ask me to find hardware or manage your cart</p>
+                 </div>
+               )}
+               {messages.map((m, i) => (
+                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] p-4 rounded-3xl text-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-800 border rounded-tl-none shadow-sm'}`}>
+                       <p className="leading-relaxed">{m.text}</p>
+                       
+                       {m.sources && m.sources.length > 0 && (
+                         <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                            <p className="text-[9px] font-black uppercase text-slate-400">Sources</p>
+                            {m.sources.map((s, idx) => (
+                              <a key={idx} href={s.uri} target="_blank" rel="noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate">{s.title}</a>
+                            ))}
+                         </div>
+                       )}
+
+                       {m.isConfirmation && (
+                         <div className="mt-4 flex gap-2">
+                            <button onClick={handleConfirmOrder} className="flex-1 bg-indigo-600 text-white py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Check size={14}/> Confirm</button>
+                            <button onClick={handleCancelOrder} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><X size={14}/> Cancel</button>
+                         </div>
+                       )}
+                    </div>
+                 </div>
+               ))}
+               {isTyping && (
+                 <div className="flex justify-start">
+                   <div className="bg-white border p-4 rounded-3xl rounded-tl-none shadow-sm">
+                      <Loader2 className="animate-spin text-indigo-600" size={18}/>
+                   </div>
+                 </div>
+               )}
+               {isLive && (
+                 <div className="flex justify-center py-4">
+                    <div className="flex items-center gap-1 h-8">
+                       {[...Array(8)].map((_, i) => (
+                         <div 
+                           key={i} 
+                           className="w-1 bg-indigo-500 rounded-full transition-all duration-75"
+                           style={{ height: `${Math.max(4, (audioLevel / 255) * 32 * Math.sin(Date.now() / 100 + i))}px` }}
+                         />
+                       ))}
+                    </div>
+                 </div>
+               )}
+            </div>
+
+            {/* Input Form */}
+            <div className="p-6 bg-white border-t">
+               <div className="relative flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSend()}
+                    placeholder={isLive ? "Speak to Nex..." : "Message Nex..."}
+                    className="flex-1 bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm focus:ring-2 focus:ring-indigo-500/10 transition-all"
+                  />
+                  <button onClick={handleSend} disabled={!input.trim()} className="bg-slate-900 text-white p-4 rounded-2xl disabled:opacity-50 hover:bg-indigo-600 transition-colors shadow-lg">
+                     <Send size={18}/>
+                  </button>
+               </div>
+            </div>
+         </div>
+       )}
+
+       <button onClick={() => setIsOpen(!isOpen)} className={`w-16 h-16 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-90 ${isOpen ? 'bg-slate-900 text-white rotate-90' : 'bg-indigo-600 text-white'}`}>
+          {isOpen ? <X size={28}/> : <Bot size={28}/>}
+       </button>
     </div>
   );
 };

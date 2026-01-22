@@ -39,6 +39,14 @@ export const marketplaceTools: FunctionDeclaration[] = [
     }
   },
   {
+    name: 'placeOrder',
+    description: 'Use this when the user says "checkout", "buy now", "confirm order", or "complete purchase". This triggers the final payment process.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {}
+    }
+  },
+  {
     name: 'navigateTo',
     description: 'Navigates to a specific app view: home, search, cart, checkout, profile, orders, admin, presentation.',
     parameters: {
@@ -61,6 +69,8 @@ export function createChatSession(initialContext?: string): Chat {
       CORE RULE: Do NOT call 'searchProducts' if the user wants to ADD an item to their cart. 
       If the user says "add this to cart" and a product is currently selected or mentioned, use 'addToCart'.
       
+      If the user wants to buy their items, complete their order, or checkout, use 'placeOrder'. 
+
       If the user asks about the app features, how it works, or wants to see a demo/presentation, navigate to 'presentation'.
 
       CONTEXT:
@@ -69,6 +79,7 @@ export function createChatSession(initialContext?: string): Chat {
       TOOLS:
       - 'searchProducts': For exploration.
       - 'addToCart': For adding items to the basket.
+      - 'placeOrder': For finalizing the purchase.
       - 'navigateTo': For switching pages.
       
       GROUNDING:
